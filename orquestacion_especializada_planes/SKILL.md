@@ -1,528 +1,387 @@
 ---
 name: orquestacion_especializada_planes
-description: Skill para gestionar, delegar, supervisar y validar la ejecución de sub-agentes especializados durante la implementación técnica de un plan previamente definido, asegurando que cada sub-agente reciba el contexto completo y vigente de su fase, opere con alcance controlado y produzca entregables alineados con el diseño, el código existente y la integración final.
+description: Skill para gestionar, delegar, supervisar y validar la ejecución de sub-agentes especializados durante la implementación técnica de un plan. Incluye uso de memoria persistente con Engram para indexar el plan por fases, registrar progreso en tiempo real, y proveer a cada sub-agente contexto completo y vigente sin depender de la ventana de contexto activa. Activar siempre que haya un plan de implementación técnico con múltiples fases o dominios, haya riesgo de pérdida de contexto entre agentes, se necesite orquestar sub-agentes especializados, o cuando el trabajo pueda compactarse o interrumpirse entre sesiones. También usar cuando el usuario mencione "orquestar agentes", "plan de fases", "delegación técnica", "sub-agentes", "memoria de plan", o cualquier variante de ejecución por etapas con múltiples especialistas.
 ---
 
-# SKILL: Orquestación Especializada de Planes
+# SKILL: Orquestación Especializada de Planes con Memoria Persistente
+
+> Para referencias detalladas, leer:
+> - `references/protocolo_delegacion.md` — protocolo completo de delegación, plantilla y reglas por dominio
+> - `references/engram_ops.md` — operaciones Engram: cómo indexar, actualizar y consultar memoria de plan
+
+---
 
 ## 1. Propósito
 
-Esta skill define cómo un agente orquestador debe coordinar sub-agentes especializados durante la ejecución de un **Plan de Implementación** ya existente.
+Esta skill define cómo un agente orquestador coordina sub-agentes especializados durante la ejecución de un **Plan de Implementación** usando **memoria persistente con Engram** como columna vertebral del estado compartido.
 
-Su objetivo es:
+Objetivos:
 
-- convertir fases del plan en tareas ejecutables;
-- asignarlas al especialista correcto;
-- transferir a cada sub-agente el **contexto vigente, suficiente y específico** de la fase que debe ejecutar;
-- evitar que los sub-agentes reconstruyan por su cuenta el contexto consultando planes viejos, parciales o ambiguos;
-- controlar que cada ejecución respete el diseño original;
-- validar integración, consistencia y calidad antes de avanzar.
+- convertir fases del plan en tareas ejecutables con contexto autosuficiente;
+- persistir el plan completo en Engram antes de comenzar, indexado por fases;
+- proveer a cada sub-agente la clave Engram exacta desde donde recuperar su contexto;
+- actualizar Engram al cierre de cada fase con estado real (completado, parcial, bloqueado);
+- garantizar que ante compactación, nueva sesión o cambio de agente, el plan nunca se pierda;
+- evitar que sub-agentes reconstruyan contexto por inferencia o planes ambiguos.
 
-Esta skill **no reemplaza** al plan de implementación: lo usa como contrato de ejecución.
+Esta skill **no reemplaza** al plan de implementación: lo persiste, lo distribuye y lo actualiza.
 
 ---
 
 ## 2. Cuándo se Activa
 
-Esta skill debe activarse **únicamente** cuando se cumplan todas las siguientes condiciones:
+Condiciones de activación (todas deben cumplirse):
 
-1. existe un Plan de Implementación explícito;
+1. existe un Plan de Implementación explícito con fases definidas;
 2. el trabajo requiere ejecución técnica en una o más capas del sistema;
-3. hay riesgo de desalineación entre diseño, código e integración si una sola unidad ejecuta todo sin control intermedio.
+3. hay riesgo de desalineación entre diseño, código e integración.
 
-No debe activarse para:
+No activar para:
 
-- brainstorming;
-- diseño inicial sin fases definidas;
-- tareas triviales de una sola capa;
-- cambios menores que no requieran delegación ni supervisión multi-dominio.
-
----
-
-## 3. Rol del Orquestador
-
-El orquestador es responsable de traducir el plan en ejecución controlada. No actúa como simple despachador.
-
-Sus responsabilidades obligatorias son:
-
-- interpretar el plan y descomponerlo en fases operativas;
-- determinar qué dominio debe ejecutar cada fase;
-- **extraer y transferir el contenido relevante de la fase**, no solo su número, nombre o identificador;
-- entregar a cada sub-agente el contexto **suficiente para ejecutar sin tener que inferir qué quiso decir el plan**;
-- asegurar que el contexto transferido pertenezca al **plan vigente**, no a versiones previas ni documentos alternativos;
-- controlar que cada salida respete el plan, el código existente y las restricciones del sistema;
-- detectar desviaciones, inconsistencias o efectos colaterales;
-- ordenar correcciones antes de permitir que el plan continúe;
-- validar integración entre dominios antes del cierre.
-
-El orquestador conserva siempre la autoridad sobre:
-
-- prioridades;
-- orden de ejecución;
-- criterios de aceptación;
-- aprobación o rechazo de entregables parciales.
+- brainstorming o diseño inicial sin fases definidas;
+- tareas triviales de una sola capa sin delegación;
+- cambios menores que no requieran sub-agentes ni supervisión multi-dominio.
 
 ---
 
-## 4. Principios de Orquestación
+## 3. Flujo Maestro del Orquestador
 
-### 4.1 Separación estricta de dominios
-
-Cada sub-agente debe operar dentro de un dominio técnico definido para evitar solapamientos, acoplamiento accidental y cambios contradictorios.
-
-Ejemplos de dominios:
-
-- **Backend:** lógica de negocio, persistencia, contratos de API, validaciones de servidor, jobs, eventos, seguridad de servidor.
-- **Frontend:** componentes UI, estado cliente, navegación, formularios, consumo de APIs, renderizado y UX funcional.
-- **Datos/DB:** migraciones, esquemas, índices, seeds, compatibilidad de modelos.
-- **Infra/DevOps** (si aplica): despliegue, configuración, pipelines, variables de entorno, observabilidad.
-- **QA/Test** (si aplica): pruebas unitarias, integración, e2e, validación de cobertura crítica.
-
-Si una fase involucra varios dominios, el orquestador debe **dividirla** en subtareas coordinadas, no entregarla mezclada a un único sub-agente salvo que el plan lo justifique de forma explícita.
-
-### 4.2 Contexto suficiente, no mínimo por reflejo
-
-Cada sub-agente debe recibir el **mínimo necesario para evitar ruido**, pero el **máximo necesario para no perder comprensión**.
-
-La regla correcta no es “dar poco contexto”, sino **dar contexto suficiente y curado**.
-
-Esto incluye, según corresponda:
-
-- contenido de la fase vigente del plan;
-- objetivo de esa fase dentro del plan general;
-- objetivo local de la tarea delegada;
-- precondiciones y dependencias ya resueltas;
-- archivos objetivo exactos;
-- contratos, esquemas o fragmentos de referencia relevantes;
-- convenciones existentes del proyecto;
-- restricciones de arquitectura;
-- criterio de salida esperado.
-
-No se debe saturar al sub-agente con información global irrelevante, pero **tampoco se le debe obligar a reconstruir el contexto faltante por inferencia**.
-
-### 4.3 Contexto vigente y anti-ambigüedad
-
-El sub-agente nunca debe recibir solo referencias como:
-
-- “hacé la fase 3”;
-- “implementá lo de la fase backend”; 
-- “seguí con la siguiente parte del plan”.
-
-Eso es contexto insuficiente y genera ambigüedad.
-
-Cada delegación debe contener el **extracto operativo de la fase** o una reformulación fiel de su contenido, de manera que el sub-agente pueda ejecutar sin buscar por su cuenta a qué fase se refiere el orquestador.
-
-### 4.4 Prohibición de búsqueda autónoma de contexto de fase
-
-El sub-agente **no debe buscar en planes antiguos, versiones previas o documentos alternativos** para deducir qué significa la fase asignada, salvo que el orquestador lo autorice de forma explícita.
-
-Si la fase delegada no trae contexto suficiente para ejecutarse con seguridad, el sub-agente debe:
-
-1. detener la ejecución;
-2. reportar insuficiencia de contexto;
-3. solicitar ampliación o aclaración al orquestador.
-
-No debe completar huecos con suposiciones.
-
-### 4.5 Fidelidad al plan
-
-Ningún sub-agente puede reinterpretar objetivos de negocio ni rediseñar arquitectura por su cuenta.
-
-Si detecta que una fase del plan:
-
-- es inconsistente,
-- incompleta,
-- inviable,
-- o entra en conflicto con el código real,
-
-entonces debe reportarlo al orquestador en lugar de improvisar una solución estructural no autorizada.
-
-### 4.6 Validación incremental
-
-Ninguna fase se considera cerrada solo porque “compila” o “parece correcta”.
-
-Cada fase debe pasar por validación técnica y de integración antes de habilitar la siguiente.
+```
+INICIO
+  │
+  ▼
+[FASE 0] ── Indexar plan en Engram ──────────────────────────────────────────┐
+  │           • mem_session_start                                             │
+  │           • mem_save: meta, restricciones, una obs. por fase, estado     │
+  │           • guardar IDs devueltos en contexto activo                     │
+  │                                                                           │
+  ▼                                                                           │
+[FASE N] ── Preparar delegación ─────────────────────────────────────────────┤
+  │           • mem_get_observation ID_fase_N  → verificar precondiciones    │
+  │           • Construir contexto curado (extracto de la fase)              │
+  │           • Determinar skills disponibles que aplican → sugerirlas       │
+  │           • Incluir IDs Engram para consulta proactiva del sub-agente    │
+  │                                                                           │
+  ▼                                                                           │
+[EJECUCIÓN] ── Sub-agente opera ────────────────────────────────────────────┤
+  │           • Consulta Engram proactivamente al inicio (si tiene acceso)   │
+  │           • Consulta skills sugeridas antes de implementar               │
+  │           • Devuelve entregable + reporte de estado                      │
+  │                                                                           │
+  ▼                                                                           │
+[VALIDACIÓN] ── Orquestador valida ─────────────────────────────────────────┤
+  │           • Contrasta contra mem_get_observation ID_fase_N               │
+  │           • Decisión: Aprobada / Observaciones / Rechazada / Bloqueada   │
+  │                                                                           │
+  ▼                                                                           │
+[ACTUALIZAR ENGRAM] ── Registrar resultado real ─────────────────────────────┤
+  │           • mem_save: estado de fase (completada/bloqueada/rechazada)    │
+  │           • mem_save: estado global actualizado                          │
+  │           • Registrar archivos tocados, desvíos, deuda técnica           │
+  │                                                                           │
+  ▼                                                                           │
+¿Más fases? ── Sí → volver a [FASE N+1]                                      │
+             └─ No → [CIERRE FINAL]                                          │
+                      • mem_save: cierre final                               │
+                      • mem_session_summary + mem_session_end                │
+```
 
 ---
 
-## 5. Protocolo de Delegación
+## 4. Fase 0: Indexación del Plan en Engram
 
-Cada invocación a un sub-agente debe incluir, como mínimo, los siguientes bloques.
+**Esta fase es obligatoria antes de delegar cualquier sub-agente.**
 
-### 5.1 Identificación de la fase
+Engram no es un key-value store: persiste **observaciones estructuradas** recuperables por ID o por búsqueda full-text. El orquestador crea una observación por cada elemento del plan que necesite persistencia.
 
-Debe indicarse:
+### 4.1 Observaciones requeridas al inicio
 
-- identificador o nombre exacto de la fase;
-- posición de la fase dentro del plan;
-- versión o referencia del plan vigente, si aplica.
+| Título de observación | Tipo | Contenido |
+|---|---|---|
+| `[PLAN:{nombre}] Meta y objetivo general` | `"plan"` | Nombre, versión, objetivo, dominio, total de fases |
+| `[PLAN:{nombre}] Restricciones globales` | `"architecture"` | Convenciones, contratos, separación de capas |
+| `[PLAN:{nombre}] Fase {N}: {nombre}` | `"decision"` | Contenido operativo completo de la fase (una obs. por fase) |
+| `[PLAN:{nombre}] Estado global` | `"plan"` | Mapa de progreso: todas las fases en `"pendiente"` |
 
-El identificador por sí solo **no alcanza**.
+### 4.2 Convención de títulos
 
-### 5.2 Contenido operativo de la fase
+Usar el prefijo `[PLAN:{nombre}]` en todos los títulos. Permite recuperar todas las memorias del plan con una sola búsqueda:
 
-El orquestador debe pasar el **contenido concreto de la fase**, resumido o citado de forma fiel.
+```
+mem_search "[PLAN:suite_api_v2]"   → lista todas las observaciones del plan
+```
 
-Debe incluir, según aplique:
+### 4.3 Secuencia de inicio
 
-- qué se busca lograr en esa fase;
-- qué cambios contempla;
-- qué dependencias asume resueltas;
-- qué restricciones impone;
-- qué resultado habilita para la fase siguiente.
+```
+1. mem_session_start
+2. mem_context                        ← verificar si el plan ya existe de sesión anterior
+3. mem_save para cada observación     ← guardar los IDs devueltos
+4. Retener IDs en contexto activo     ← para acceso directo durante la sesión
+```
 
-### 5.3 Objetivo de la fase y objetivo local
+Los IDs devueltos por `mem_save` permiten `mem_get_observation id={ID}` directo sin búsqueda. Guardarlos es crítico mientras el contexto activo esté disponible.
 
-Cada delegación debe incluir dos niveles de objetivo:
-
-- **Objetivo de la fase:** para qué existe esa fase dentro del plan general.
-- **Objetivo local de la tarea:** qué debe implementar o modificar exactamente el sub-agente en esta delegación.
-
-El sub-agente no debe recibir solo “qué hacer”, sino también **por qué esa tarea existe en la secuencia de implementación**.
-
-### 5.4 Alcance exacto
-
-Debe indicarse:
-
-- qué archivos puede modificar;
-- qué archivos puede crear;
-- qué archivos no debe tocar;
-- qué capas del sistema quedan fuera del alcance.
-
-### 5.5 Contexto suficiente y curado
-
-Debe incluir:
-
-- extracto de la fase vigente del plan;
-- contratos, esquemas o fragmentos de código relevantes;
-- dependencias necesarias;
-- convenciones existentes del proyecto;
-- supuestos que no debe alterar;
-- decisiones ya tomadas que afecten esta fase.
-
-Regla: **no pasar contexto de menos; no pasar contexto basura; pasar contexto suficiente para ejecutar sin reconstrucción externa.**
-
-### 5.6 Restricciones
-
-Debe especificarse claramente:
-
-- no desviarse del plan;
-- no consultar planes viejos para completar ambigüedades;
-- no refactorizar fuera del alcance;
-- no cambiar contratos sin autorización;
-- no introducir librerías o patrones nuevos sin justificación explícita;
-- no romper compatibilidad con fases ya validadas.
-
-### 5.7 Criterio de finalización
-
-Cada sub-agente debe saber cuándo su tarea se considera terminada.
-
-Ejemplos:
-
-- endpoint implementado y alineado con esquema y validaciones;
-- componente renderiza estados loading/error/success;
-- tests críticos agregados y pasando;
-- migración consistente con modelo y consultas existentes.
-
-### 5.8 Formato de respuesta del sub-agente
-
-Todo sub-agente debe devolver:
-
-- cambios realizados;
-- archivos tocados;
-- supuestos usados;
-- bloqueos o inconsistencias detectadas;
-- confirmación explícita de si el contexto recibido fue suficiente o no.
+Ver plantillas completas de contenido en `references/engram_ops.md` → §4.
 
 ---
 
-## 6. Plantilla Obligatoria de Invocación
+## 5. Preparación de la Delegación
 
-El orquestador debe estructurar cada delegación con este esquema:
+Antes de invocar al sub-agente, el orquestador debe preparar tres elementos además del contexto de la fase: el acceso a Engram, las skills sugeridas, y el alcance.
 
-### Sub-agente objetivo
+### 5.1 Acceso a Engram para el sub-agente
 
-`[backend | frontend | datos | infra | qa]`
+Si el sub-agente tiene acceso a Engram, el orquestador debe **siempre** incluir los IDs relevantes e instruir al sub-agente a consultarlos **al inicio de su tarea**, no solo si tiene dudas.
 
-### Plan vigente
+La lógica es: Engram tiene el contenido completo y persistido de la fase; el mensaje de delegación puede ser un extracto. El sub-agente debería leer la observación completa antes de arrancar.
 
-`[nombre, versión o referencia del plan activo]`
+| Situación | Acción |
+|---|---|
+| Sub-agente tiene acceso a Engram | Incluir IDs y sugerir consulta proactiva al inicio |
+| Sub-agente NO tiene acceso a Engram | Pasar todo el contexto necesario embebido en el mensaje |
 
-### Fase
+**Instrucción estándar para sub-agente con acceso Engram:**
 
-`[identificador y nombre exacto]`
+```
+Antes de comenzar, consultá Engram para obtener el contexto completo de esta fase:
+  mem_get_observation id={ID_fase_N}          ← contenido completo de la fase
+  mem_get_observation id={ID_restricciones}   ← convenciones y contratos del proyecto
 
-### Contenido de la fase
+El mensaje que te pasé es un extracto. La observación en Engram es la fuente completa y vigente.
+Si algo en Engram contradice este mensaje, reportá la discrepancia al orquestador antes de continuar.
+NO hagas mem_search genérico ni accedas a otras observaciones del plan.
+NO llames mem_save — el orquestador registra el cierre de fase.
+```
 
-`[extracto fiel y autosuficiente de la fase a ejecutar]`
+### 5.2 Sugerencia de Skills al Sub-agente
 
-### Objetivo de la fase
+El orquestador debe evaluar qué skills del sistema son aplicables a la fase y sugerirlas en la delegación. No es una obligación para el sub-agente, pero sí una guía para que no ejecute sin aprovechar herramientas especializadas disponibles.
 
-`[qué habilita o resuelve esta fase dentro del plan general]`
+**Cómo determinar qué skills sugerir:**
 
-### Objetivo local de la tarea
+| Dominio / tarea de la fase | Skills típicamente relevantes |
+|---|---|
+| Backend Laravel (endpoints, modelos, migraciones) | skill de Laravel, skill de API design |
+| Frontend (componentes, estado, formularios) | skill de frontend-design, skill del framework en uso |
+| Base de datos (migraciones, esquemas, seeds) | skill de DB / migrations |
+| Documentos Word / PDF / planillas | skill docx, skill pdf, skill xlsx |
+| Pruebas / QA | skill de testing del stack en uso |
+| Código genérico, scripts, CLI | skill de file-reading, skill del lenguaje |
 
-`[resultado técnico puntual esperado del sub-agente]`
+El orquestador no inventa skills que no existen. Solo sugiere las que sabe disponibles en el entorno.
 
-### Precondiciones ya resueltas
+**Regla adicional para fases de Frontend — DESIGN.md:**
 
-- `[dependencia 1]`
-- `[dependencia 2]`
+Antes de delegar cualquier fase de dominio Frontend, el orquestador debe verificar si existe un archivo `DESIGN.md` en el repositorio. Si existe, debe incluirlo como referencia obligatoria en la delegación para que el sub-agente respete el sistema visual de la aplicación.
 
-### Archivos permitidos
+```
+Si el repositorio tiene DESIGN.md:
 
-- `[ruta/archivo_1]`
-- `[ruta/archivo_2]`
+  Referencia de diseño obligatoria: DESIGN.md
+  Antes de implementar cualquier componente, leé DESIGN.md para entender
+  la paleta de colores, tipografía, espaciado, componentes base y patrones
+  visuales del proyecto. No introduzcas estilos, tokens o componentes que
+  contradigan lo definido allí. Si necesitás algo que DESIGN.md no cubre,
+  reportalo al orquestador en lugar de improvisar.
+```
 
-### Archivos prohibidos o fuera de alcance
+Si `DESIGN.md` no existe en el repositorio, omitir esta instrucción.
 
-- `[ruta/archivo_x]`
+**Instrucción estándar para incluir en la delegación:**
 
-### Referencias relevantes
+```
+Skills sugeridas para esta fase:
+  - [{nombre_skill}]: {razón concreta por la que aplica a esta tarea}
+  - [{nombre_skill}]: {razón concreta}
 
-- `[fragmento, contrato, esquema o archivo base]`
+No estás obligado a usarlas, pero consultarlas antes de implementar puede ahorrarte
+trabajo y asegurar que el output esté alineado con las convenciones del proyecto.
+```
 
-### Restricciones
+Si no hay skills conocidas que apliquen a la fase, omitir esta sección en lugar de inventar.
 
-- seguir estrictamente la fase asignada;
-- no rediseñar;
-- no modificar otras capas;
-- no buscar contexto en planes antiguos sin autorización;
-- reportar bloqueos o insuficiencia de contexto.
+### 5.3 Plantilla de delegación completa
 
-### Entregable esperado
-
-- cambios realizados;
-- resumen técnico breve;
-- supuestos detectados;
-- riesgos o bloqueos;
-- confirmación de suficiencia de contexto.
-
----
-
-## 7. Reglas de Ejecución
-
-### 7.1 Granularidad controlada
-
-No delegar más de una fase activa simultánea al mismo sub-agente.
-
-### 7.2 Dependencias explícitas
-
-Una fase no debe comenzar si depende de otra que aún no fue validada, salvo que el plan contemple paralelismo seguro.
-
-### 7.3 Paralelismo limitado
-
-Solo se permite ejecución paralela cuando:
-
-- las tareas no comparten archivos conflictivos;
-- los contratos entre capas ya están definidos;
-- la integración posterior es verificable.
-
-### 7.4 Una salida por iteración
-
-Cada sub-agente debe devolver un resultado acotado, enfocado y revisable.
-
-### 7.5 Sin autonomía arquitectónica
-
-Los sub-agentes ejecutan. El orquestador decide.
-
-### 7.6 No ejecutar con contexto dudoso
-
-Si la delegación no contiene el contenido suficiente de la fase, el sub-agente no debe adivinar, completar huecos ni buscar equivalentes aproximados en otros planes.
-
-Debe declararlo como bloqueo de contexto.
+Ver `references/protocolo_delegacion.md` → sección "Plantilla Obligatoria".
 
 ---
 
-## 8. Supervisión y Loop de Calidad
+## 6. Actualización de Engram al Cierre de Fase
 
-Después de cada entrega, el orquestador debe ejecutar un ciclo obligatorio de validación.
+**Obligatorio después de cada validación de entregable.**
 
-### 8.1 Verificación contra el plan
+### 6.1 Qué guardar
 
-Comprobar que la implementación:
+```
+mem_save  tipo:"bugfix"
+título: "[PLAN:{nombre}] Estado Fase {N} - {COMPLETADA|BLOQUEADA|RECHAZADA}"
+contenido:
+  estado: completada | parcial | bloqueada | rechazada
+  fecha_cierre: {timestamp}
+  archivos_tocados: [lista real de archivos modificados]
+  supuestos_usados: [supuestos documentados por el sub-agente]
+  desvíos_detectados: [si los hubo]
+  deuda_técnica: [observaciones para fases futuras]
+  contexto_fue_suficiente: sí | no | parcial
+  notas_para_siguiente_agente: [qué debe saber quien continúe]
 
-- corresponde exactamente a la fase asignada;
-- usa como referencia el **plan vigente correcto**;
-- no omitió requisitos de la fase;
-- no agregó comportamiento fuera de alcance.
+mem_save  tipo:"plan"
+título: "[PLAN:{nombre}] Estado global"
+contenido: mapa actualizado con nuevo estado de fase N
+```
 
-### 8.2 Verificación de suficiencia de contexto
+### 6.2 Cuándo actualizar
 
-El orquestador debe revisar también su propia delegación.
+- Inmediatamente al aprobar o rechazar un entregable.
+- Antes de invocar el siguiente sub-agente.
+- Si la sesión puede compactarse, actualizar Engram antes de perder contexto — y llamar `mem_session_summary`.
 
-Debe comprobar:
+### 6.3 Registro de bloqueos
 
-- que no envió solo el nombre o número de la fase;
-- que el extracto de fase era autosuficiente;
-- que el sub-agente no tuvo que buscar contexto externo;
-- que el contexto pasado fue suficiente, relevante y vigente.
-
-Si falla esto, el problema no es del sub-agente: es de la orquestación.
-
-### 8.3 Verificación técnica local
-
-Evaluar:
-
-- coherencia lógica;
-- consistencia con el código existente;
-- manejo de errores;
-- compatibilidad de tipos, contratos o esquemas;
-- impacto en dependencias y flujos relacionados.
-
-### 8.4 Verificación inter-dominios
-
-Si hay más de una capa involucrada, revisar que:
-
-- frontend y backend usen el mismo contrato;
-- modelos y persistencia reflejen la lógica implementada;
-- nombres, estados y estructuras sean compatibles;
-- no existan supuestos contradictorios entre sub-agentes.
-
-### 8.5 Decisión obligatoria
-
-Toda entrega debe terminar en uno de estos estados:
-
-- **Aprobada** → puede avanzar la siguiente fase.
-- **Aprobada con observaciones** → puede avanzar, dejando constancia de deuda acotada.
-- **Rechazada** → debe corregirse antes de continuar.
-- **Bloqueada** → requiere redefinición o ampliación de contexto.
+```
+mem_save  tipo:"bugfix"
+título: "[PLAN:{nombre}] Estado Fase {N} - BLOQUEADA"
+contenido:
+  estado: bloqueada
+  motivo_bloqueo: {descripción exacta}
+  requiere: {qué se necesita para desbloquear}
+  escalado_a: orquestador | redefinición de plan
+```
 
 ---
 
-## 9. Manejo de Desviaciones y Bloqueos
+## 7. Recuperación de Estado en Nueva Sesión o Compactación
 
-Si un sub-agente:
+Cuando el orquestador inicia en un contexto nuevo (compactación, nueva sesión, agente diferente):
 
-- modifica archivos fuera de alcance,
-- altera contratos no autorizados,
-- introduce lógica no pedida,
-- rompe consistencia con otra capa,
-- usa referencias de planes antiguos sin autorización,
-- o evidencia no haber seguido la fase asignada,
+### 7.1 Secuencia de recuperación
 
-el orquestador debe:
+```
+1. mem_context
+   → inyecta contexto de sesión anterior automáticamente
 
-1. rechazar el entregable parcial;
-2. identificar la desviación concreta;
-3. distinguir si el error fue de ejecución o de contexto mal transferido;
-4. emitir una instrucción correctiva precisa;
-5. impedir el avance hasta validar la corrección.
+2. mem_search "[PLAN:{nombre}] Estado global"
+   → encontrar la observación de estado más reciente → obtener su ID
 
-Si el problema nace en el plan o en una delegación insuficiente del orquestador, debe marcarse como:
+3. mem_get_observation id={ID_estado_global}
+   → leer qué fases están pendientes, en curso o bloqueadas
 
-- **inconsistencia del plan**, o
-- **falla de transferencia de contexto**.
+4. Si hay fases "en_curso":
+   mem_search "[PLAN:{nombre}] Fase {N}"
+   mem_get_observation id={ID_fase_N}
+   → determinar si se completó o quedó a medias; decidir si continuar o re-delegar
 
-No debe disfrazarse como fallo técnico del sub-agente si en realidad recibió una orden ambigua.
+5. mem_search "[PLAN:{nombre}] Restricciones"
+   mem_get_observation id={ID_restricciones}
+   → cargar convenciones globales
+```
 
----
+### 7.2 Regla: no asumir, verificar
 
-## 10. Criterios de Calidad Mínimos
-
-Antes de aprobar una fase, el orquestador debe verificar como mínimo:
-
-- alineación con el plan vigente;
-- correctitud lógica;
-- consistencia con la arquitectura existente;
-- ausencia de cambios laterales injustificados;
-- compatibilidad entre capas involucradas;
-- trazabilidad clara de qué se modificó y por qué;
-- suficiencia del contexto que fue usado para ejecutar.
-
-Cuando aplique, también debe revisar:
-
-- validaciones;
-- manejo de errores;
-- seguridad básica;
-- pruebas críticas;
-- impacto en migraciones o datos existentes;
-- retrocompatibilidad.
+El orquestador nunca asume que una fase está completa porque recuerda haberla delegado. Debe leer el estado real desde Engram antes de continuar.
 
 ---
 
-## 11. Reglas de Control Obligatorias
+## 8. Principios de Orquestación
 
-- No delegar más de una fase del plan simultáneamente a un mismo sub-agente.
-- No delegar una fase solo por identificador: debe transferirse su contenido operativo.
-- Validar cada tarea terminada antes de proceder a la siguiente fase dependiente.
-- Mantener el contexto de cada sub-agente aislado y enfocado.
-- Mantener el contexto **suficiente**, no artificialmente mínimo.
-- No permitir rediseños implícitos durante la ejecución.
-- No aceptar entregables sin contraste contra el plan.
-- No avanzar con integración si existe una divergencia contractual no resuelta.
-- No mezclar diagnóstico, implementación y validación sin dejar explícito qué rol se está ejecutando.
-- No permitir que un sub-agente consulte planes antiguos para completar instrucciones ambiguas, salvo autorización explícita.
+Ver detalle completo en `references/protocolo_delegacion.md`. Resumen operativo:
+
+- **Separación estricta de dominios**: backend, frontend, datos, infra, QA nunca se mezclan en una misma delegación sin justificación explícita.
+- **Contexto suficiente, no mínimo**: el sub-agente no debe reconstruir contexto; debe poder ejecutar con lo que recibe.
+- **Contexto vigente**: siempre del plan activo, nunca de versiones previas o inferencias.
+- **Prohibición de búsqueda autónoma**: el sub-agente no busca contexto externo sin autorización.
+- **Fidelidad al plan**: ningún sub-agente rediseña; si detecta inconsistencia, la reporta.
+- **Validación incremental**: ninguna fase avanza sin aprobación explícita del orquestador.
 
 ---
 
-## 12. Cierre de Implementación
+## 9. Supervisión y Validación
 
-Una vez ejecutadas todas las fases, el orquestador debe realizar una validación final de conjunto.
+Después de cada entrega, el orquestador ejecuta:
 
-Debe comprobar:
+1. **Verificación contra Engram** — `mem_get_observation id={ID_fase_N}` → ¿se implementó lo que decía la observación?
+2. **Verificación técnica local** — coherencia lógica, consistencia con código existente.
+3. **Verificación inter-dominios** — contratos compartidos entre capas.
+4. **Verificación de suficiencia de contexto** — ¿el sub-agente tuvo que inferir algo?
 
-- que todas las fases del plan fueron ejecutadas;
-- que no quedaron incompatibilidades entre dominios;
-- que los contratos definidos en diseño coinciden con el código final;
-- que los cambios parciales forman una solución integrada y operativa;
-- que ninguna fase fue ejecutada con contexto ambiguo o heredado de un plan incorrecto.
+**Decisión obligatoria:**
 
-El cierre debe incluir un resumen con:
+| Estado | Acción |
+|---|---|
+| ✅ Aprobada | Actualizar Engram → avanzar |
+| ⚠️ Aprobada con observaciones | Actualizar Engram con deuda → avanzar |
+| ❌ Rechazada | Corregir antes de actualizar Engram |
+| 🔒 Bloqueada | Registrar bloqueo en Engram → escalar |
 
-- fases ejecutadas;
-- sub-agentes involucrados;
-- archivos afectados;
-- desvíos corregidos;
-- fallas de contexto detectadas y corregidas;
-- riesgos remanentes o deuda técnica detectada.
+---
+
+## 10. Reglas de Control Obligatorias
+
+- Indexar el plan completo en Engram con `mem_save` **antes** de delegar la primera fase.
+- Llamar `mem_session_start` al inicio y `mem_session_summary` + `mem_session_end` al cerrar.
+- Guardar los IDs devueltos por `mem_save` durante la sesión activa.
+- Actualizar el estado global en Engram **inmediatamente** tras aprobar o rechazar cada entregable.
+- No delegar más de una fase activa simultáneamente al mismo sub-agente.
+- No delegar una fase solo por identificador: transferir su contenido operativo.
+- No avanzar si existe divergencia contractual no resuelta.
+- No permitir que sub-agentes usen `mem_search` libre ni `mem_save` sin autorización explícita.
+- No mezclar diagnóstico, implementación y validación sin declarar qué rol se ejecuta.
+- Ante compactación inminente: llamar `mem_session_summary` antes de perder contexto.
+
+---
+
+## 11. Cierre de Implementación
+
+Al terminar todas las fases:
+
+```
+mem_save  tipo:"plan"
+título: "[PLAN:{nombre}] Cierre final"
+contenido:
+  fases_ejecutadas, sub_agentes, archivos_afectados,
+  desvíos_corregidos, deuda_técnica, riesgos, fallas_de_contexto
+
+mem_session_summary
+  Goal / Discoveries / Accomplished / Files
+
+mem_session_end
+```
+
+---
+
+## 12. Regla Central
+
+**Cada sub-agente debe recibir: el contenido operativo de la fase, su objetivo dentro del plan, el objetivo local, las precondiciones resueltas, los archivos afectados, las restricciones, los IDs Engram para consulta proactiva al inicio, y las skills disponibles que aplican a su tarea. Engram es la fuente de verdad del plan. Las skills son las herramientas especializadas que el sub-agente debe aprovechar. El orquestador no obliga, pero sí informa.**
 
 ---
 
 ## 13. Anti-Patrones a Evitar
 
-Esta skill prohíbe expresamente los siguientes comportamientos:
-
-- delegar tareas ambiguas o abiertas;
-- pasar solo el nombre o número de una fase;
-- asumir que el sub-agente ya sabe a qué versión del plan se hace referencia;
-- pasar contexto masivo sin curación;
-- pasar contexto tan escaso que obligue al sub-agente a inferir o buscar afuera;
-- permitir que un sub-agente redefina el problema;
-- validar superficialmente solo por ausencia de errores sintácticos;
-- ejecutar frontend y backend en paralelo sin contrato claro;
-- aceptar cambios fuera de alcance “porque ya estaban hechos”;
-- encadenar varias fases sin puntos de control.
-
----
-
-## 14. Resumen Operativo
-
-La lógica de esta skill es simple:
-
-1. tomar una fase concreta del plan vigente;
-2. extraer su contenido operativo;
-3. asignarla al especialista correcto;
-4. pasarle contexto suficiente, curado y vigente;
-5. exigir ejecución fiel al alcance;
-6. impedir ejecución si la delegación quedó ambigua;
-7. validar técnica y funcionalmente la salida;
-8. corregir desviaciones;
-9. avanzar recién cuando la fase esté aprobada.
-
-El orquestador no delega responsabilidad: delega ejecución.
+- No indexar el plan en Engram antes de comenzar.
+- No llamar `mem_session_summary` al cerrar la sesión.
+- No guardar los IDs devueltos por `mem_save` durante la sesión.
+- Actualizar Engram solo al final (demasiado tarde si hay compactación).
+- Delegar fases solo por nombre/número sin contenido operativo.
+- Incluir IDs Engram pero no indicar que el sub-agente los consulte proactivamente al inicio.
+- No sugerir skills disponibles al sub-agente cuando hay skills aplicables a la fase.
+- Inventar o sugerir skills que no existen en el entorno.
+- Permitir que sub-agentes usen `mem_search` libre sin query específica autorizada.
+- Permitir que sub-agentes llamen `mem_save` sin autorización explícita.
+- Asumir que el estado en memoria activa es igual al estado real en Engram.
+- No registrar bloqueos, desvíos ni deuda técnica en Engram.
+- Encadenar fases sin actualizar Engram entre una y otra.
 
 ---
 
-## 15. Regla Central
+## 14. Versión Breve para Activación Rápida
 
-**Cada sub-agente debe recibir no solo el identificador de la fase, sino también el contenido operativo de esa fase, su objetivo dentro del plan, el objetivo local de la tarea, las precondiciones relevantes, los archivos afectados, las restricciones y un criterio de salida verificable. Si ese contexto no fue transferido de forma suficiente y vigente, la ejecución no debe comenzar.**
+1. **Indexar** el plan completo en Engram (`mem_save` por fase + estado + restricciones).
+2. **Recuperar** la fase con `mem_get_observation id={ID_fase_N}` antes de cada delegación.
+3. **Evaluar** qué skills disponibles aplican a la fase → incluirlas como sugerencia.
+4. **Delegar** con: contexto curado + IDs Engram para consulta proactiva al inicio + skills sugeridas.
+5. **Validar** el entregable contra la observación de la fase.
+6. **Actualizar** Engram con el estado real (`mem_save` + estado global) antes de continuar.
+7. **Recuperar** estado con `mem_context` + `mem_search "[PLAN:{nombre}]"` ante compactación o nueva sesión.
 
----
-
-## 16. Versión Breve para Activación Rápida
-
-Usar esta skill cuando exista un plan de implementación y haya que ejecutar fases con sub-agentes especializados sin perder coherencia arquitectónica.
-
-Regla central resumida: **no delegar “fases” como etiquetas; delegar fases como unidades de trabajo autosuficientes, con contexto vigente, objetivo de fase, objetivo local, alcance, restricciones y criterio de validación.**
-
+El orquestador no delega responsabilidad: delega ejecución. Engram no reemplaza el contexto: lo persiste. Las skills no son obligatorias para el sub-agente: son orientación del orquestador.
