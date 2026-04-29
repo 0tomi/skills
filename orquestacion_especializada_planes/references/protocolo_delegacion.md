@@ -19,17 +19,16 @@ El orquestador debe estructurar cada delegación con este esquema:
 `[backend | frontend | datos | infra | qa]`
 
 ### Plan vigente
-`[nombre y versión del plan activo]`
-
-### Referencia Engram del plan
-`plan:{nombre_plan}:meta` — para identificación
-`plan:{nombre_plan}:restricciones` — para convenciones globales
+`[nombre del plan activo]`
 
 ### Fase
 `[identificador y nombre exacto]`
 
-### Referencia Engram de la fase
-`plan:{nombre_plan}:fase:{N}` — fuente autoritativa de esta fase
+### Criticidad de la fase
+`critica | no_critica` — el orquestador la clasificó así porque: `[razón]`
+
+### Modo de validación esperado
+`inmediata | batch` — qué va a hacer el orquestador al recibir el entregable
 
 ### Contenido de la fase
 `[extracto fiel y autosuficiente de la fase a ejecutar — no solo el nombre]`
@@ -65,7 +64,7 @@ Si algo en Engram contradice este mensaje, reportá la discrepancia antes de con
 NO hagas mem_search genérico ni accedas a otras observaciones del plan.
 NO llames mem_save — el orquestador registra el cierre de fase.
 ```
-*(Omitir esta sección si el sub-agente no tiene acceso a Engram; en ese caso pasar todo el contexto inline)*
+*(Omitir esta sección si el sub-agente no tiene acceso a Engram; en ese caso pasar todo el contexto inline. Si en ese caso el sub-agente reporta insuficiencia de contexto, el orquestador re-delega ampliando el contexto inline; nunca le exige consultar Engram.)*
 
 ### Skills sugeridas
 ```
@@ -76,6 +75,25 @@ No estás obligado a usarlas, pero consultarlas antes de implementar puede ahorr
 trabajo y asegurar que el output esté alineado con las convenciones del proyecto.
 ```
 *(Omitir si no hay skills conocidas que apliquen a la fase — no inventar)*
+
+### Sub-agentes auxiliares disponibles
+```
+Si durante la implementación lo necesitás, podés spawnear:
+
+- sdd-explore: si necesitás entender código existente que no te pasé.
+  Tips: tarea concreta, alcance limitado, una pregunta por invocación,
+  pedile conclusiones sintetizadas (no volcado de archivos).
+  Útil acá si: {razón conectada a esta fase}
+
+- sdd-archive: si tomás una decisión técnica no trivial o detectás un patrón
+  que conviene dejar documentado para fases futuras.
+  Tips: pasale el contenido ya redactado, especificale archivo + sección destino,
+  no archives lo obvio.
+  Útil acá si: {razón conectada a esta fase}
+
+No estás obligado a usarlos.
+```
+*(Omitir el bloque entero si ninguno aplica — ver `subagentes_auxiliares.md` para criterios)*
 
 ### Restricciones
 - seguir estrictamente la fase asignada;
@@ -224,7 +242,7 @@ Todo sub-agente debe devolver obligatoriamente:
 Antes de aprobar una fase, verificar:
 
 **Obligatorio:**
-- alineación con `plan:{nombre_plan}:fase:{N}` en Engram;
+- alineación con la observación Engram de la fase (`mem_get_observation id={ID_fase_N}`);
 - correctitud lógica;
 - consistencia con la arquitectura existente;
 - ausencia de cambios laterales injustificados;
