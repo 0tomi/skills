@@ -1,391 +1,326 @@
-# Supervisión, Validación y Cierre
+# Supervisión y Validación del Plan
 
-> El orquestador no es un repartidor de tareas. Es un supervisor activo de la
-> implementación. Esta referencia define cómo vigila, cuándo revisa, qué hace
-> cuando algo falla, y cómo audita el cierre del plan.
+> El orquestador no solo distribuye tareas: vigila que cada fase se haya implementado
+> correctamente y que el conjunto sea consistente con el plan original.
+>
+> Esta es una de sus responsabilidades centrales, no un paso opcional.
+
+> **Recordatorio sobre Engram**: todas las escrituras (`mem_save`, `mem_session_summary`)
+> que aparecen en este archivo deben ejecutarse SECUENCIALMENTE, nunca en paralelo.
+> SQLite no soporta concurrencia. Esperar respuesta de cada llamada antes de la siguiente.
+> Detalle en `engram_ops.md` §0.
 
 ## Tabla de Contenidos
 
-1. [Filosofía: el orquestador vigila](#filosofia)
-2. [Criticidad de la fase y modos de validación](#criticidad)
-3. [Modo "validación inmediata"](#inmediata)
-4. [Modo "validación batch cada 2 fases"](#batch)
-5. [Re-delegación tras rechazo](#redelegacion)
-6. [Manejo de estado zombie "en_curso"](#zombie)
-7. [Modo dry-run del plan](#dryrun)
-8. [Auditoría final de cierre](#auditoria)
+1. [Filosofía de vigilancia activa](#filosofia)
+2. [Clasificación de criticidad de fases](#criticidad)
+3. [Modos de validación: inmediata vs batch](#modos)
+4. [Protocolo de re-delegación tras rechazo](#redelegacion)
+5. [Manejo de estado zombie ("en_curso" sin cierre)](#zombie)
+6. [Auditoría final de cierre del plan](#auditoria)
+7. [Modo dry-run: preview de delegaciones](#dryrun)
 
 ---
 
-## 1. Filosofía: el Orquestador Vigila {#filosofia}
+## 1. Filosofía de Vigilancia Activa {#filosofia}
 
-El orquestador tiene dos responsabilidades, no una:
+El orquestador es responsable de:
 
-1. **Delegar bien** — pasar contexto suficiente, sugerir herramientas, proteger el alcance.
-2. **Vigilar la implementación** — verificar que cada fase se haya ejecutado correctamente, no solo que el sub-agente diga que terminó.
+1. Que cada fase se implemente alineada con su definición en Engram.
+2. Que el conjunto de fases ejecutadas mantenga coherencia con el plan original.
+3. Que las desviaciones detectadas se registren y se resuelvan, no se acumulen como deuda silenciosa.
 
-Confiar en el reporte del sub-agente sin verificar es delegación, no orquestación. El reporte puede ser optimista, incompleto, o describir algo distinto a lo que efectivamente se implementó.
+La vigilancia se ejecuta en dos momentos:
 
-Vigilar significa, según la criticidad de la fase, **leer el código real**, **comparar contra la observación de la fase en Engram**, **chequear archivos tocados**, **detectar cambios laterales no declarados**.
+- **Durante la ejecución**: tras cada entregable, según criticidad de la fase (ver §3).
+- **Al cierre del plan**: auditoría final que revisa el conjunto contra la meta original (ver §6).
+
+No alcanza con que cada fase pase su propia validación: el plan completo debe seguir teniendo sentido al final.
 
 ---
 
-## 2. Criticidad de la Fase y Modos de Validación {#criticidad}
+## 2. Clasificación de Criticidad de Fases {#criticidad}
 
-No todas las fases requieren el mismo nivel de revisión. El orquestador clasifica cada fase antes de delegarla y registra la criticidad en su observación Engram.
+El orquestador clasifica cada fase como **crítica** o **estándar** al momento de indexarla en Engram. La clasificación determina cuándo y cómo se valida.
 
-### Criterio de clasificación
+### Fase crítica
 
-Una fase es **crítica** si cumple al menos uno:
+Cumple alguno de estos criterios:
 
-- toca lógica de negocio central (autenticación, permisos, cálculos monetarios, datos legales);
-- afecta contratos compartidos entre capas (API, esquemas de BD, eventos públicos);
-- modifica migraciones, esquemas o seeds de producción;
-- introduce o modifica código de seguridad (validaciones, sanitización, control de acceso);
-- toca infraestructura de despliegue;
-- es una fase bisagra (su salida habilita varias fases siguientes);
-- el plan la marca explícitamente como crítica.
+- Toca contratos compartidos entre capas (ej: schema de API consumido por frontend).
+- Modifica esquema de base de datos o migraciones con datos en producción.
+- Implementa lógica de negocio sensible: pagos, autenticación, autorización, datos legales.
+- Toca código de seguridad o validación de entrada.
+- Es bloqueante de muchas fases siguientes (alta dependencia).
+- Introduce un patrón nuevo que será replicado por otras fases.
 
-Una fase es **no crítica** si:
+### Fase estándar
 
-- es un cambio acotado en una sola capa con bajo blast radius;
-- es refactor cosmético, ajuste de UI sin lógica nueva, mensajes de log, comentarios;
-- es una sub-tarea pequeña parte de una fase más grande;
-- el costo de un error es bajo y reversible sin impacto en otras fases.
+- Cambios localizados sin impacto cruzado significativo.
+- Componentes UI aislados que siguen patrones existentes.
+- Refactors menores, ajustes de configuración, fixes de bugs delimitados.
+- QA / testing rutinario sobre código ya validado.
 
-Cuando hay duda, **clasificar como crítica**. El costo de revisar de más es bajo; el costo de no revisar una fase crítica es alto.
+### Cómo registrar la criticidad
 
-### Registro en Engram
-
-Al crear la observación de fase en la Fase 0, agregar al contenido:
+En la observación `[PLAN:{nombre}] Fase {N}: {nombre}`, agregar el campo:
 
 ```
-CRITICIDAD: critica | no_critica
-JUSTIFICACION CRITICIDAD: {por qué se clasificó así}
+CRITICIDAD: critica | estandar
+RAZÓN DE CRITICIDAD: {por qué — solo si crítica}
+```
+
+### Regla práctica
+
+Ante la duda, marcar como crítica. El costo de validar de más es bajo; el costo de no validar una fase crítica puede propagarse a varias fases siguientes.
+
+---
+
+## 3. Modos de Validación: Inmediata vs Batch {#modos}
+
+### Modo inmediato (fases críticas)
+
+Tras recibir el entregable de una fase crítica:
+
+1. El orquestador valida **antes** de delegar la siguiente fase.
+2. No avanza hasta haber aprobado, rechazado, o registrado bloqueo.
+3. La validación es individual y completa para esa fase.
+
+```
+Fase crítica → entregable → VALIDAR → registrar en Engram → delegar siguiente
+```
+
+### Modo batch (fases estándar)
+
+Para fases estándar, el orquestador puede acumular hasta 2 entregables antes de validar, siempre que:
+
+- las fases acumuladas no compartan archivos entre sí;
+- no haya dependencia directa entre ellas (la 2da no necesita la 1ra cerrada);
+- ambas hayan reportado entregable completo.
+
+```
+Fase estándar 1 → entregable
+Fase estándar 2 → entregable
+                → VALIDAR ambas → registrar en Engram → continuar
+```
+
+**Por qué batch en estándar:** reduce overhead de validación en fases de bajo riesgo. La validación sigue siendo obligatoria; lo que cambia es la frecuencia.
+
+### Reglas de excepción
+
+- Si una fase estándar reporta bloqueo o discrepancia → validar inmediatamente, no acumular.
+- Si la fase siguiente es crítica → validar las pendientes antes de delegar la crítica.
+- Si una fase estándar tarda mucho → validar lo que haya y no esperar al par.
+- Si hay sospecha de regresión → validar inmediatamente, romper el batch.
+
+### Validación batch paso a paso
+
+```
+1. mem_get_observation id={ID_fase_A}    ← contenido original
+2. mem_get_observation id={ID_fase_B}    ← contenido original
+3. Revisar entregable A contra ID_fase_A
+4. Revisar entregable B contra ID_fase_B
+5. Revisar interacción entre A y B (¿se pisaron archivos? ¿contratos consistentes?)
+6. Decisión por fase: aprobar / rechazar / observar
+7. Registrar cierres en Engram (uno por fase)
 ```
 
 ---
 
-## 3. Modo "Validación Inmediata" {#inmediata}
+## 4. Protocolo de Re-Delegación tras Rechazo {#redelegacion}
 
-**Aplica a fases críticas.**
+Cuando una fase es rechazada, la nueva delegación no es igual a la primera: debe incluir el feedback del rechazo y referenciar el intento previo.
 
-Apenas el sub-agente entrega, el orquestador valida antes de avanzar a la siguiente fase. Sin excepciones.
+### Pasos obligatorios
 
-### Procedimiento
-
-1. **Leer la observación Engram de la fase** — `mem_get_observation id={ID_fase_N}`. Esto define qué se esperaba.
-2. **Leer el reporte del sub-agente** — qué dice que hizo, archivos tocados, supuestos.
-3. **Verificación cruzada** — leer al menos los archivos principales que el sub-agente declaró haber tocado. Confirmar:
-   - los cambios existen y se ven como se describen;
-   - no hay cambios laterales en archivos no declarados;
-   - el contrato (si la fase tenía uno) se respeta tal como pedía el plan;
-   - las restricciones globales del proyecto se cumplen.
-4. **Verificación lógica** — el código tiene sentido para el objetivo, no solo compila.
-5. **Verificación inter-dominios** — si la fase produce algo que otra capa va a consumir, ¿el formato es el correcto?
-6. **Decisión** — Aprobada / Aprobada con observaciones / Rechazada / Bloqueada.
-7. **Actualizar Engram** con el resultado real.
-
-Solo después de aprobada se delega la siguiente fase.
-
-### Costo y por qué vale la pena
-
-Validación inmediata gasta tokens del orquestador. Pero detecta errores antes de que se propaguen a fases dependientes, donde el costo de corrección es exponencial.
-
----
-
-## 4. Modo "Validación Batch cada 2 Fases" {#batch}
-
-**Aplica a fases no críticas.**
-
-El orquestador permite acumular hasta 2 fases no críticas seguidas antes de hacer una validación conjunta. Acelera la ejecución sin perder vigilancia.
-
-### Cuándo dispara la validación
-
-- Tras la segunda fase no crítica acumulada.
-- Antes de la siguiente fase si esa siguiente es crítica (no se puede entrar a una fase crítica con deuda de validación atrás).
-- Si una fase no crítica reporta algo raro (supuestos sospechosos, archivos no esperados), validar inmediatamente aunque no llegue al batch de 2.
-- Antes del cierre final del plan (no quedan fases pendientes de validar).
-
-### Procedimiento
-
-1. Para cada fase del batch:
-   - leer su observación Engram;
-   - leer el reporte del sub-agente;
-   - leer los archivos clave declarados.
-2. Verificar consistencia entre las fases del batch (¿la segunda asumió correctamente lo que hizo la primera?).
-3. Decisión por fase: aprobada / con observaciones / rechazada.
-4. Si alguna queda rechazada, no avanzar hasta resolver.
-5. Actualizar Engram con resultado de cada fase.
-
-### Reglas duras
-
-- **Nunca acumular más de 2 fases sin revisar.** Tres es demasiado: si la primera tenía un problema, la tercera ya está corrupta.
-- **Una fase crítica rompe el batch.** Si después de 1 fase no crítica viene una crítica, validar la no crítica acumulada antes de delegar la crítica.
-- **El batch nunca cruza un cierre de plan.** Antes del cierre se validan todas las pendientes.
-
----
-
-## 5. Re-delegación tras Rechazo {#redelegacion}
-
-Cuando una fase es rechazada, no se re-delega "lo mismo de nuevo". Hay un protocolo para que la segunda intentona no repita el error.
-
-### Antes de re-delegar
-
-1. **Diagnosticar la causa real del rechazo.**
-   - ¿Fue **error de ejecución** del sub-agente? (no siguió la fase, modificó cosas fuera de alcance).
-   - ¿Fue **delegación insuficiente** del orquestador? (no se le pasó contexto necesario, ambigüedad en la fase).
-   - ¿Fue **inconsistencia del plan**? (la fase tal como está escrita no se puede ejecutar).
-2. **Registrar el diagnóstico en Engram** como una observación adicional asociada a la fase.
-
-### Persistir el intento previo
+1. **Registrar el rechazo en Engram** primero, antes de re-delegar:
 
 ```
 mem_save  tipo:"bugfix"
-título: "[PLAN:{nombre}] Fase {N} - Intento rechazado #{K}"
+título: "[PLAN:{nombre}] Estado Fase {N} - RECHAZADA (intento {K})"
 contenido:
+  estado: rechazada
   intento_numero: K
-  fecha: {timestamp}
-  causa_rechazo: ejecucion | delegacion_insuficiente | inconsistencia_plan
-  detalle: {qué falló concretamente}
-  archivos_afectados_en_intento: {lista — pueden necesitar rollback}
-  correccion_a_aplicar: {qué cambia en la próxima delegación}
+  motivo_rechazo: {descripción exacta}
+  archivos_que_se_tocaron_mal: [lista]
+  qué_debe_corregirse: {instrucción precisa}
+  responsable: ejecucion | delegación_insuficiente
 ```
 
-### Construir la nueva delegación
+2. **Decidir el responsable**: ¿el sub-agente ejecutó mal o el orquestador delegó mal? Esto cambia el approach del nuevo prompt.
 
-Según el diagnóstico:
+3. **Construir la re-delegación** con campos extra:
 
-| Causa | Qué cambia en la nueva delegación |
-|---|---|
-| Error de ejecución | Misma fase, **agregar restricciones explícitas** sobre lo que falló, citar el intento anterior |
-| Delegación insuficiente | Misma fase, **ampliar contexto** con lo que faltaba, considerar incluir más IDs Engram |
-| Inconsistencia del plan | **No re-delegar.** Detener y resolver el plan primero (escalar al humano si hace falta) |
+```
+## Esta es una RE-DELEGACIÓN — intento {K+1}
 
-### Rollback de archivos del intento anterior
+### Contexto del intento previo
+- ID en Engram: {ID_estado_rechazado}
+- Motivo del rechazo: {breve}
+- Lo que falló: {descripción concreta}
 
-Si el intento rechazado dejó archivos modificados, decidir antes de re-delegar:
+### Qué corregir específicamente
+{instrucción puntual y verificable}
 
-- **rollback completo** — descartar lo del intento previo, empezar limpio;
-- **rollback parcial** — quedarse con lo que sí estuvo bien, descartar lo desviado;
-- **continuar desde donde quedó** — solo si el sub-agente próximo recibe instrucciones precisas sobre el estado actual.
+### Lo que NO debe volver a pasar
+{lista corta de lo evitable}
 
-Cualquiera de las tres se documenta en la nueva delegación.
+### Lo que sí está bien del intento previo (si aplica)
+{para que no rehaga lo correcto}
+```
 
-### Límite de intentos
+4. **Mantener el resto de la delegación igual** al primer intento (contexto de fase, archivos permitidos, restricciones, IDs Engram, skills sugeridas, sub-agentes auxiliares disponibles, etc.).
 
-Tras **3 intentos rechazados** de la misma fase, no re-delegar más. Marcar la fase como `bloqueada` con motivo "intentos agotados", actualizar Engram, y escalar al humano.
+### Si el problema fue delegación insuficiente
+
+El orquestador no acusa al sub-agente. Reformula la delegación con más contexto, declara que el rechazo previo fue por contexto faltante, y registra en Engram como `falla_de_transferencia_de_contexto`.
+
+### Límite de reintentos
+
+Si una fase es rechazada 3 veces, el orquestador debe:
+
+- detener los reintentos automáticos;
+- marcar la fase como `bloqueada` en Engram;
+- escalar al humano con el resumen de los 3 intentos y sus motivos de rechazo.
 
 ---
 
-## 6. Manejo de Estado Zombie "en_curso" {#zombie}
+## 5. Manejo de Estado Zombie ("en_curso" sin Cierre) {#zombie}
 
-Una fase en estado `en_curso` que no tiene una observación de cierre asociada en Engram es un **estado zombie**: el orquestador la delegó, pero nunca la cerró.
+Una fase queda en estado zombie cuando fue marcada `en_curso` pero nunca se registró su cierre en Engram. Esto puede pasar por:
 
-### Cuándo aparece
+- timeout o crash del sub-agente;
+- compactación a mitad de delegación sin recovery;
+- cambio de sesión sin cerrar el ciclo.
 
-- El sub-agente nunca devolvió respuesta (timeout, error de runtime, sesión cerrada).
-- El orquestador se compactó después de delegar pero antes de validar.
-- Hubo crash o interrupción manual.
+### Cómo detectar zombies
 
-### Cómo detectarlo al recuperar sesión
+Al recuperar sesión (§7 del SKILL.md principal), tras leer `[PLAN:{nombre}] Estado global`:
 
 ```
-1. mem_search "[PLAN:{nombre}] Estado global"
-   → leer estado actual de cada fase
-
-2. Para cada fase en estado "en_curso":
+1. Identificar fases marcadas "en_curso"
+2. Para cada una:
    mem_search "[PLAN:{nombre}] Estado Fase {N}"
-   → ¿existe observación de cierre?
-
-3. Si NO existe observación de cierre → es zombie.
+   → si NO existe observación de cierre → es zombie
+   → si existe pero el estado_global no se actualizó → es desync
 ```
 
-### Qué hacer con un zombie
+### Resolución
 
-1. **Inspeccionar el repositorio** — ¿hay archivos modificados consistentes con la fase? ¿O el repo está limpio?
-2. **Decisión según evidencia:**
-   - **Repo limpio** → marcar la fase como `pendiente` (nunca llegó a ejecutarse) y re-delegar limpio.
-   - **Repo con cambios coherentes con la fase** → tratar como entregable parcial: validar lo que hay, decidir si completarlo o revertir.
-   - **Repo con cambios incoherentes o a mitad** → revertir cambios del zombie, marcar `pendiente`, re-delegar.
-3. **Registrar el zombie en Engram:**
+| Caso | Acción |
+|---|---|
+| Zombie sin entregable disponible | Marcar como `parcial` en Engram, re-delegar limpio con nota de que el intento previo no completó |
+| Zombie con entregable parcial accesible | Recuperar el entregable, validar lo que haya, decidir si completar o re-delegar |
+| Desync (cierre existe, global desactualizado) | Actualizar `[PLAN:{nombre}] Estado global` con el estado real del cierre |
 
-```
-mem_save  tipo:"bugfix"
-título: "[PLAN:{nombre}] Fase {N} - Zombie detectado"
-contenido:
-  fecha_deteccion: {timestamp}
-  evidencia_en_repo: {limpio | cambios coherentes | cambios incoherentes}
-  resolucion: re-delegacion_limpia | completar_desde_estado_actual | rollback_y_redelegar
-```
+### Prevención
 
-### Regla dura
-
-**Nunca asumir que una fase en `en_curso` está completa.** Si no hay observación de cierre, no está cerrada — punto. Verificar siempre.
+- Antes de cualquier compactación inminente: registrar checkpoint `[PLAN:{nombre}] Checkpoint pre-compactación` con la fase activa y su estado.
+- Tras delegar una fase crítica: hacer un `mem_save` adicional registrando "fase N delegada, esperando entregable de {sub-agente}".
+- Nunca confiar en que el estado en RAM del orquestador se mantendrá: persistir cualquier transición en Engram.
 
 ---
 
-## 7. Modo Dry-Run del Plan {#dryrun}
+## 6. Auditoría Final de Cierre del Plan {#auditoria}
 
-**Opcional, pero recomendado para planes con más de 5 fases o alta complejidad.**
+Cuando todas las fases reportan estado de cierre, el orquestador no termina ahí. Ejecuta una auditoría final que verifica que el plan completo siga siendo coherente.
 
-Antes de ejecutar la primera delegación, el orquestador puede generar un **plan de delegaciones** completo: la lista de qué va a delegar a quién, en qué orden, con qué clasificación de criticidad. El humano lo valida antes de que se gaste un solo token de implementación.
+### Pasos de la auditoría
 
-### Cuándo activarlo
+```
+1. mem_get_observation id={ID_meta}
+   → recordar el objetivo general del plan
 
-- Planes largos (>5 fases).
-- Planes que cruzan dominios sensibles (datos de producción, infra).
+2. mem_search "[PLAN:{nombre}] Estado Fase"
+   → recuperar todos los cierres de fase
+
+3. Para cada fase, mem_get_observation del cierre
+   → revisar archivos tocados, supuestos, deuda, desvíos
+
+4. Construir tabla consolidada:
+   - fase | estado | archivos | desvíos | deuda
+```
+
+### Verificaciones obligatorias
+
+**Cobertura del objetivo**
+- ¿Todo lo que el plan se proponía lograr está cubierto por alguna fase completada?
+- ¿Quedaron objetivos parciales sin cubrir?
+
+**Consistencia inter-fases**
+- ¿Algún archivo fue tocado por fases que no debían interactuar?
+- ¿Algún contrato compartido (ej: schema de API) quedó modificado por una fase de un dominio y consumido por otra que no fue actualizada?
+- ¿Las fases siguientes a una con deuda técnica la heredaron correctamente o la ignoraron?
+
+**Desvíos del plan**
+- ¿Alguna fase introdujo cambios fuera de su alcance original?
+- ¿Algún supuesto declarado por un sub-agente contradice supuestos de otras fases?
+- ¿La arquitectura final coincide con la planeada en `[PLAN:{nombre}] Restricciones globales`?
+
+**Deuda acumulada**
+- Listar toda la deuda técnica registrada por las fases.
+- Identificar cuál es bloqueante para uso productivo y cuál puede quedar pendiente.
+
+### Resultado de la auditoría
+
+```
+mem_save  tipo:"plan"
+título: "[PLAN:{nombre}] Auditoría final"
+contenido:
+  cobertura_objetivo: completa | parcial — {detalle}
+  consistencia_interfases: ok | con observaciones — {detalle}
+  desvíos_detectados: ninguno | lista
+  deuda_consolidada: lista
+  recomendaciones: {acciones sugeridas para resolver desvíos / deuda}
+  apto_para_uso: sí | no — {condiciones}
+```
+
+### Si la auditoría detecta problemas
+
+- Inconsistencias menores → registrar y dejar al humano la decisión de corregirlas ahora o en un nuevo plan.
+- Inconsistencias bloqueantes → no marcar el plan como completado; abrir fase de remediación con su propia delegación.
+- Desvíos del objetivo → escalar al humano antes de cerrar.
+
+Solo cuando la auditoría confirma cobertura + consistencia, el orquestador escribe `[PLAN:{nombre}] Cierre final` y llama `mem_session_summary` + `mem_session_end`.
+
+---
+
+## 7. Modo Dry-Run: Preview de Delegaciones {#dryrun}
+
+Para planes complejos, el orquestador puede generar la lista completa de delegaciones planeadas **antes** de ejecutar la primera, y presentarla al humano para validación.
+
+### Cuándo conviene activarlo
+
+- Planes con más de 5 fases.
+- Planes que tocan múltiples dominios sensibles (legales, pagos, datos productivos).
 - Cuando el humano lo pide explícitamente.
-- Cuando el plan recién fue redefinido y se quiere revisar la nueva estructura.
+- Primera ejecución de un nuevo tipo de plan (sin precedente exitoso).
 
-### Qué entrega el dry-run
+### Qué incluye el dry-run
 
-Un documento con, por cada fase:
-
-- nombre y objetivo;
-- sub-agente destinatario;
-- criticidad clasificada y justificación;
-- modo de validación esperado (inmediata / batch);
-- skills que se sugerirán;
-- IDs Engram que se referenciarán;
-- precondiciones requeridas (qué fases deben estar completas antes);
-- riesgos o ambigüedades detectadas en el plan original.
+```
+Para cada fase planeada:
+  - Sub-agente objetivo
+  - Criticidad declarada
+  - Resumen de la delegación (objetivo + archivos + criterio de cierre)
+  - Skills sugeridas
+  - Sub-agentes auxiliares ofrecidos (sdd-explore / sdd-archive)
+  - Modo de validación que se aplicará (inmediata / batch)
+  - Dependencias con fases previas
+```
 
 ### Procedimiento
 
-1. Indexar el plan en Engram (Fase 0 normal).
-2. **Antes** de delegar la primera fase, generar el dry-run.
-3. Mostrar al humano y esperar confirmación o ajustes.
-4. Si hay ajustes, actualizar las observaciones Engram correspondientes.
-5. Comenzar a delegar.
+1. El orquestador indexa el plan en Engram normalmente (§4 del SKILL.md).
+2. Antes de la primera delegación, genera el preview completo.
+3. Se lo presenta al humano.
+4. Espera confirmación o ajustes.
+5. Si hay ajustes, actualiza las observaciones de fase en Engram antes de delegar.
 
-### Persistir el dry-run
+### Cuándo omitirlo
 
-```
-mem_save  tipo:"plan"
-título: "[PLAN:{nombre}] Dry-run de delegaciones"
-contenido: {tabla completa de delegaciones planificadas}
-```
+- Planes simples de pocas fases.
+- Cuando el humano pidió ejecución directa.
+- Planes recurrentes ya validados en ejecuciones previas.
 
----
-
-## 8. Auditoría Final de Cierre {#auditoria}
-
-**Obligatoria. No saltarla aunque todas las fases hayan sido validadas individualmente.**
-
-Una fase puede pasar su validación local y aun así dejar el plan globalmente inconsistente. La auditoría final detecta desvíos acumulados.
-
-### Cuándo se ejecuta
-
-Tras la última fase validada, antes de hacer `mem_save` del cierre y antes de `mem_session_end`.
-
-### Qué revisa
-
-#### 8.1 Cobertura del plan
-
-- ¿Todas las fases del plan original están en estado `completada` o `parcial`?
-- ¿Hay fases pendientes que se "olvidaron"?
-- ¿Hay fases en estado `en_curso` zombie sin resolver?
-
-#### 8.2 Consistencia entre fases
-
-- Los contratos definidos en fases tempranas, ¿siguen respetados en las últimas?
-- Los archivos tocados por una fase, ¿no fueron alterados por otra de forma incompatible?
-- Las restricciones globales registradas en `[PLAN:{nombre}] Restricciones globales`, ¿se cumplen al final?
-
-#### 8.3 Desvíos acumulados
-
-- ¿Cuántas fases reportaron desvíos pequeños "aprobados con observaciones"? Si hay más de 2, el plan puede haber drifteado lejos de la intención original.
-- ¿Cuántos supuestos no documentados se acumularon a lo largo de la ejecución?
-
-#### 8.4 Deuda técnica registrada
-
-- ¿Cuál es la deuda técnica acumulada en los cierres de fase?
-- ¿Hay deuda crítica que requiere acción inmediata vs. registrable para después?
-
-#### 8.5 Verificación de archivos prohibidos
-
-- Recorrer todas las observaciones de cierre de fase.
-- ¿Algún sub-agente tocó archivos que estaban en la lista de prohibidos de su fase?
-
-### Procedimiento de auditoría
-
-```
-1. mem_search "[PLAN:{nombre}]"
-   → recuperar todas las observaciones del plan
-
-2. Cargar la lista de fases originales (de [PLAN:{nombre}] Meta)
-   y compararla con los estados finales en [PLAN:{nombre}] Estado global
-
-3. Para cada fase, leer su observación de cierre y registrar:
-   - estado final
-   - archivos tocados
-   - desvíos
-   - deuda técnica
-
-4. Verificación cruzada de contratos:
-   - tomar las restricciones globales y verificar que ninguna fase las haya roto
-
-5. Generar reporte de auditoría
-```
-
-### Persistir el reporte de auditoría
-
-```
-mem_save  tipo:"plan"
-título: "[PLAN:{nombre}] Auditoría final de cierre"
-contenido:
-  fecha_auditoria: {timestamp}
-
-  cobertura:
-    fases_completadas: [lista]
-    fases_parciales: [lista, con razón]
-    fases_no_ejecutadas: [lista, con razón]
-    zombies_resueltos: [lista]
-
-  consistencia:
-    contratos_respetados: sí | no — {detalle si hay roturas}
-    archivos_con_modificaciones_cruzadas: [lista o ninguno]
-    restricciones_globales_violadas: [lista o ninguna]
-
-  desvios_acumulados:
-    fases_con_observaciones: {cantidad y lista}
-    supuestos_no_documentados: {cantidad}
-    drift_estimado: bajo | medio | alto
-
-  deuda_tecnica:
-    items: [lista priorizada]
-    requieren_accion_inmediata: [lista o ninguno]
-
-  archivos_prohibidos_tocados: [lista o ninguno]
-
-  veredicto: implementacion_consistente | implementacion_con_observaciones | implementacion_inconsistente
-
-  recomendaciones: {acciones sugeridas tras el cierre}
-```
-
-### Veredicto final
-
-| Veredicto | Significado | Acción |
-|---|---|---|
-| `implementacion_consistente` | Todo el plan se ejecutó como se esperaba, sin desvíos significativos | Cerrar el plan normalmente |
-| `implementacion_con_observaciones` | Hay desvíos menores documentados, deuda técnica registrada | Cerrar el plan, dejar la deuda visible al humano |
-| `implementacion_inconsistente` | Hay desvíos serios, archivos prohibidos tocados, contratos rotos, o cobertura incompleta | **No cerrar el plan limpio.** Escalar al humano con el reporte de auditoría |
-
-### Después de la auditoría
-
-Si el veredicto permite cerrar:
-
-```
-1. mem_save  tipo:"plan"
-   título: "[PLAN:{nombre}] Cierre final"
-   contenido: resumen + referencia al ID de la auditoría
-
-2. mem_session_summary
-   Goal / Discoveries / Accomplished / Files
-   incluir veredicto de auditoría
-
-3. mem_session_end
-```
-
-Si el veredicto es `implementacion_inconsistente`, no llamar `mem_session_end` hasta resolver con el humano.
+El dry-run es opcional. Si se omite, el resto del flujo se ejecuta normalmente.

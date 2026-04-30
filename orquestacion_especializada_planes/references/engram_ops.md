@@ -6,6 +6,7 @@
 
 ## Tabla de Contenidos
 
+0. [Regla crítica: escrituras secuenciales, nunca en paralelo](#serializar)
 1. [Los 10 tools MCP disponibles](#tools)
 2. [Cómo mapear el plan a observaciones Engram](#mapeo)
 3. [Operaciones en cada etapa del ciclo de orquestación](#operaciones)
@@ -14,6 +15,69 @@
 6. [Recuperación ante compactación o nueva sesión](#compactacion)
 7. [Reglas de uso para sub-agentes](#subagentes)
 8. [Errores comunes y cómo evitarlos](#errores)
+
+---
+
+## 0. Regla Crítica: Escrituras Secuenciales, Nunca en Paralelo {#serializar}
+
+**Engram usa SQLite. SQLite no soporta escrituras concurrentes. Disparar varios `mem_save` en paralelo rompe la base de datos o devuelve errores de bloqueo.**
+
+### Reglas obligatorias
+
+1. **Una escritura a la vez.** Nunca disparar dos `mem_save` en paralelo (ni con `Promise.all`, ni encadenando tool calls simultáneos en un mismo turno, ni de cualquier otra manera).
+2. **Esperar respuesta antes de la siguiente.** Cada `mem_save` debe completar y devolver su ID antes de iniciar el siguiente. Si una llamada falla, reintentar esa antes de continuar.
+3. **Las lecturas (`mem_get_observation`, `mem_search`, `mem_context`, `mem_timeline`) sí pueden hacerse en paralelo entre sí**, pero NO en paralelo con escrituras.
+4. **Mientras hay un `mem_save` en curso, no disparar otra operación de escritura** (`mem_save`, `mem_session_summary`, `mem_save_prompt`).
+
+### Patrones correctos vs incorrectos
+
+```
+INCORRECTO — disparar varias escrituras en el mismo turno:
+  mem_save(estado_fase_3)
+  mem_save(estado_global_actualizado)
+  → Engram puede fallar por lock. La segunda llamada puede no escribir.
+
+CORRECTO — secuencial, una termina antes que arranque la siguiente:
+  resultado_1 = mem_save(estado_fase_3)        ← esperar a que termine
+  resultado_2 = mem_save(estado_global)        ← recién después, la siguiente
+
+INCORRECTO — indexación inicial en paralelo:
+  En un solo turno, disparar simultáneamente:
+    mem_save(meta), mem_save(restricciones), mem_save(fase_1), mem_save(fase_2)...
+  → SQLite lock garantizado.
+
+CORRECTO — indexación inicial secuencial:
+  Turno 1: mem_save(meta)                  → esperar respuesta, guardar ID
+  Turno 2: mem_save(restricciones)         → esperar respuesta, guardar ID
+  Turno 3: mem_save(fase_1)                → esperar respuesta, guardar ID
+  ...
+```
+
+### Consecuencia para el cierre de fase
+
+Cuando cierra una fase, el orquestador escribe DOS observaciones (estado de fase + estado global). DEBEN ir secuenciales:
+
+```
+1. mem_save(estado_fase_N)        → esperar respuesta
+2. mem_save(estado_global)        → recién ahora
+```
+
+No usar `Promise.all` ni equivalentes. No disparar la segunda llamada antes de que vuelva la primera.
+
+### Consecuencia para la auditoría final
+
+La auditoría escribe múltiples observaciones (auditoría + cierre + session_summary). Todas secuenciales:
+
+```
+1. mem_save(auditoría_final)      → esperar
+2. mem_save(cierre_final)         → esperar
+3. mem_session_summary            → esperar
+4. mem_session_end                → esperar
+```
+
+### Si el orquestador delega fases en paralelo
+
+Aunque varias fases puedan ejecutarse en paralelo a nivel de sub-agentes, sus **escrituras de cierre a Engram deben serializarse en el orquestador**. Cuando dos sub-agentes terminen casi simultáneamente, el orquestador procesa los cierres de a uno: valida el primero, escribe a Engram (esperando respuesta), valida el segundo, escribe a Engram. Nunca dispara las dos escrituras en paralelo.
 
 ---
 

@@ -1,30 +1,32 @@
 ---
 name: orquestacion_especializada_planes
-description: Skill para orquestar, vigilar y validar la ejecución de un plan técnico con sub-agentes especializados, usando Engram como memoria persistente del plan. El orquestador no solo delega: supervisa activamente cada entregable, verifica que la implementación coincida con el plan, ajusta el rigor de validación según la criticidad de cada fase, y audita la consistencia global al cierre. Activar cuando haya un plan con múltiples fases, riesgo de pérdida de contexto entre agentes, necesidad de delegación técnica multi-dominio, o cuando el trabajo pueda interrumpirse y reanudarse. Palabras clave: "orquestar agentes", "plan de fases", "delegación técnica", "sub-agentes", "memoria de plan", "ejecución por etapas".
+description: Skill para orquestar, supervisar y validar la ejecución de un plan técnico por fases con sub-agentes especializados. El orquestador no solo distribuye tareas: vigila activamente que cada fase se implemente correctamente, valida fases críticas inmediatamente y fases estándar en lotes, y al final del plan audita el conjunto contra el objetivo original para detectar desvíos. Usa Engram como memoria persistente del plan (indexado por fases, actualizado en cada cierre, recuperable ante compactación). Activar cuando el usuario tiene un plan técnico con múltiples fases o dominios, menciona "orquestar agentes", "plan de fases", "delegación técnica", "sub-agentes", "memoria de plan", o cuando hay riesgo de pérdida de contexto entre agentes o sesiones.
 ---
 
 # SKILL: Orquestación Especializada de Planes con Memoria Persistente
 
-> **Referencias modulares:**
-> - `references/protocolo_delegacion.md` — plantilla de delegación, dominios, manejo de bloqueos, formato de respuesta
-> - `references/engram_ops.md` — operaciones Engram completas: API, plantillas, recuperación
-> - `references/supervision_y_validacion.md` — vigilancia activa, criticidad, modos de validación, re-delegación, auditoría final
-> - `references/subagentes_auxiliares.md` — sdd-explore y sdd-archive: cuándo sugerirlos, tips de eficiencia
+> Referencias modulares (cargar según necesidad):
+> - `references/protocolo_delegacion.md` — plantilla de delegación, dominios, formato de respuesta
+> - `references/engram_ops.md` — API completa de Engram, recuperación, plantillas de observaciones
+> - `references/supervision_y_validacion.md` — criticidad, modos de validación, re-delegación, auditoría final, dry-run
+> - `references/subagentes_auxiliares.md` — sdd-explore y sdd-archive: cuándo y cómo sugerirlos
 
 ---
 
-## 1. Propósito y Doble Responsabilidad
+## 1. Rol del Orquestador
 
-Esta skill define cómo un agente orquestador coordina sub-agentes especializados durante la ejecución de un **Plan de Implementación**, usando **memoria persistente con Engram** como columna vertebral del estado compartido.
+El orquestador tiene **dos responsabilidades igualmente importantes**:
 
-El orquestador tiene **dos responsabilidades**, no una:
+1. **Distribuir y delegar** — convertir las fases del plan en tareas ejecutables con contexto autosuficiente para cada sub-agente especializado.
 
-1. **Delegar bien** — convertir fases del plan en tareas ejecutables con contexto autosuficiente, sugerir herramientas adecuadas, proteger el alcance.
-2. **Vigilar la implementación** — verificar que cada fase se haya ejecutado correctamente. Para fases críticas validación inmediata; para fases no críticas se puede acumular hasta 2 antes de revisar. Al cierre del plan, auditar consistencia global.
+2. **Vigilar y validar** — verificar que cada fase se implementó correctamente y que el conjunto sigue siendo coherente con el plan original. La vigilancia es activa, no pasiva.
 
-Confiar en el reporte del sub-agente sin verificar es delegación, no orquestación. Ver detalles completos de vigilancia en `references/supervision_y_validacion.md`.
+La validación se ejecuta en dos momentos:
 
-Esta skill **no reemplaza** al plan: lo persiste, lo distribuye, lo vigila y lo audita.
+- **Tras cada entregable**, con frecuencia ajustada según criticidad de la fase: las fases críticas se validan inmediatamente; las estándar pueden agruparse de a 2 antes de validar (ver `supervision_y_validacion.md` §3).
+- **Al cierre del plan**, mediante una auditoría que verifica cobertura del objetivo, consistencia inter-fases, desvíos del alcance original y deuda técnica acumulada (ver `supervision_y_validacion.md` §6).
+
+Engram es la columna vertebral del estado: el plan se persiste indexado por fases antes de delegar, se actualiza en cada cierre, y se recupera ante compactación o nueva sesión.
 
 ---
 
@@ -32,7 +34,7 @@ Esta skill **no reemplaza** al plan: lo persiste, lo distribuye, lo vigila y lo 
 
 Condiciones de activación (todas deben cumplirse):
 
-1. existe un Plan de Implementación explícito con fases definidas;
+1. existe un plan de implementación explícito con fases definidas;
 2. el trabajo requiere ejecución técnica en una o más capas del sistema;
 3. hay riesgo de desalineación entre diseño, código e integración.
 
@@ -50,47 +52,50 @@ No activar para:
 INICIO
   │
   ▼
-[FASE 0] ── Indexar plan en Engram ──────────────────────────────────────────┐
+[FASE 0] ── Indexar plan en Engram + clasificar criticidad ──────────────────┐
   │           • mem_session_start                                             │
-  │           • Clasificar criticidad de cada fase (critica | no_critica)     │
   │           • mem_save: meta, restricciones, una obs. por fase, estado     │
-  │           • Guardar IDs en contexto activo                                │
-  │           • [Opcional] Generar dry-run para planes complejos              │
+  │           • Cada fase declara CRITICIDAD: critica | estandar             │
+  │           • (Opcional) Modo dry-run: presentar preview al humano         │
   │                                                                           │
   ▼                                                                           │
 [FASE N] ── Preparar delegación ─────────────────────────────────────────────┤
-  │           • mem_get_observation ID_fase_N → verificar precondiciones      │
+  │           • mem_get_observation ID_fase_N → verificar precondiciones     │
   │           • Construir contexto curado (extracto de la fase)              │
   │           • Determinar skills disponibles que aplican → sugerirlas       │
-  │           • Determinar si aplican sub-agentes auxiliares → sugerirlos     │
+  │           • Determinar si conviene ofrecer sdd-explore / sdd-archive     │
   │           • Incluir IDs Engram para consulta proactiva del sub-agente    │
+  │           • Declarar criticidad y modo de validación esperado            │
   │                                                                           │
   ▼                                                                           │
 [EJECUCIÓN] ── Sub-agente opera ────────────────────────────────────────────┤
   │           • Consulta Engram proactivamente al inicio (si tiene acceso)   │
   │           • Consulta skills sugeridas antes de implementar               │
-  │           • Spawnea sdd-explore/sdd-archive si los necesita              │
+  │           • Spawnea sdd-explore / sdd-archive si los necesita            │
   │           • Devuelve entregable + reporte de estado                      │
   │                                                                           │
   ▼                                                                           │
-[VALIDACIÓN] ── Vigilancia activa ─────────────────────────────────────────┤
-  │           • Si fase CRÍTICA → validación inmediata                       │
-  │           • Si fase NO CRÍTICA → acumular hasta 2, luego revisar         │
-  │           • Leer código real, no confiar en el reporte                   │
+[VALIDACIÓN] ── Vigilancia activa según criticidad ─────────────────────────┤
+  │           • Crítica: validar inmediatamente, no avanzar                  │
+  │           • Estándar: acumular hasta 2 entregables, luego validar        │
   │           • Decisión: Aprobada / Observaciones / Rechazada / Bloqueada   │
+  │           • Si rechazada: re-delegar con feedback estructurado           │
   │                                                                           │
   ▼                                                                           │
-[ACTUALIZAR ENGRAM] ── Registrar resultado real ─────────────────────────────┤
-  │           • mem_save: estado de fase                                     │
-  │           • mem_save: estado global actualizado                          │
+[ACTUALIZAR ENGRAM] ── Registrar resultado real (escrituras SECUENCIALES) ──┤
+  │           • mem_save: estado de fase  → esperar respuesta                │
+  │           • mem_save: estado global   → recién después                   │
+  │           • Nunca disparar las dos en paralelo (SQLite no lo soporta)    │
   │           • Registrar archivos tocados, desvíos, deuda técnica           │
   │                                                                           │
   ▼                                                                           │
 ¿Más fases? ── Sí → volver a [FASE N+1]                                      │
              └─ No → [AUDITORÍA FINAL]                                       │
-                      • Validar fases no críticas pendientes del último batch │
-                      • Auditar cobertura, consistencia, desvíos acumulados  │
-                      • mem_save: cierre + auditoría                         │
+                      • Verificar cobertura del objetivo del plan            │
+                      • Verificar consistencia inter-fases                   │
+                      • Detectar desvíos del alcance original                │
+                      • Consolidar deuda técnica                             │
+                      • mem_save: cierre final                               │
                       • mem_session_summary + mem_session_end                │
 ```
 
@@ -98,288 +103,289 @@ INICIO
 
 ## 4. Fase 0: Indexación del Plan en Engram
 
-**Esta fase es obligatoria antes de delegar cualquier sub-agente.**
+**Obligatoria antes de delegar cualquier sub-agente.**
 
-Engram no es un key-value store: persiste **observaciones estructuradas** recuperables por ID o por búsqueda full-text.
+Engram persiste **observaciones estructuradas** recuperables por ID o por búsqueda full-text. El orquestador crea una observación por cada elemento del plan que necesite persistencia.
 
-### 4.1 Observaciones requeridas al inicio
+### 4.1 Observaciones requeridas
 
 | Título de observación | Tipo | Contenido |
 |---|---|---|
 | `[PLAN:{nombre}] Meta y objetivo general` | `"plan"` | Nombre, versión, objetivo, dominio, total de fases |
 | `[PLAN:{nombre}] Restricciones globales` | `"architecture"` | Convenciones, contratos, separación de capas |
-| `[PLAN:{nombre}] Fase {N}: {nombre}` | `"decision"` | Contenido operativo + **criticidad** + justificación |
+| `[PLAN:{nombre}] Fase {N}: {nombre}` | `"decision"` | Contenido operativo + criticidad declarada |
 | `[PLAN:{nombre}] Estado global` | `"plan"` | Mapa de progreso: todas las fases en `"pendiente"` |
 
-### 4.2 Clasificación de criticidad
+Convención de títulos: prefijo `[PLAN:{nombre}]` siempre, para permitir `mem_search "[PLAN:{nombre}]"` y filtrar todo el plan.
 
-Cada fase debe clasificarse al indexarse: `critica` o `no_critica`. Esta clasificación determina el modo de validación posterior. Ver criterios completos en `references/supervision_y_validacion.md` §2.
+### 4.2 Clasificar criticidad de cada fase
 
-Regla rápida: si toca lógica de negocio central, contratos compartidos, datos sensibles, infra, o es bisagra para fases siguientes → **crítica**. En caso de duda → **crítica**.
-
-### 4.3 Convención de títulos
-
-Usar el prefijo `[PLAN:{nombre}]` en todos los títulos. Permite recuperar todas las memorias del plan con una sola búsqueda:
+Cada `[PLAN:{nombre}] Fase {N}` debe incluir:
 
 ```
-mem_search "[PLAN:suite_api_v2]"   → lista todas las observaciones del plan
+CRITICIDAD: critica | estandar
+RAZÓN DE CRITICIDAD: {por qué — solo si crítica}
 ```
 
-### 4.4 Subdivisión de fases multi-dominio
+Criterios completos en `supervision_y_validacion.md` §2. Regla rápida: ante la duda, marcar como crítica.
 
-Si una fase del plan original mezcla dominios (ej. backend + frontend en una misma unidad), el orquestador la subdivide al indexar:
+### 4.3 Subdivisión de fases multi-dominio
 
-```
-[PLAN:{nombre}] Fase 2.a: {nombre} (backend)
-[PLAN:{nombre}] Fase 2.b: {nombre} (frontend)
-```
-
-En el contenido de cada sub-fase, referenciar la fase padre y la otra sub-fase para contratos compartidos.
-
-### 4.5 Versionado del plan si cambia
-
-Si el plan cambia a mitad de ejecución (el humano lo edita), no eliminar las observaciones viejas. Crear una nueva versión:
+Si una fase del plan original mezcla dominios (ej: backend + frontend), el orquestador la divide en sub-observaciones referenciando el padre:
 
 ```
-[PLAN:{nombre}] Meta y objetivo general (v2)
+[PLAN:{nombre}] Fase 2.a: {parte backend}     ← referencia a Fase 2 padre
+[PLAN:{nombre}] Fase 2.b: {parte frontend}    ← referencia a Fase 2 padre
 ```
 
-Y en el contenido de la versión vieja anotar `OBSOLETA — reemplazada por v2 (ID: {nuevo_id})`. Las fases que cambien siguen el mismo patrón.
+Cada sub-fase tiene su propia criticidad, IDs y validación.
 
-### 4.6 Secuencia de inicio
+### 4.4 Versionado si el plan cambia a mitad de ejecución
+
+Si el humano edita el plan original durante la ejecución:
+
+1. Crear nueva observación `[PLAN:{nombre}] Meta y objetivo general (v2)`.
+2. Marcar la observación anterior como obsoleta en su contenido (no eliminar — Engram conserva historial).
+3. Crear las observaciones de fase modificadas con sufijo `(v2)`.
+4. Actualizar `[PLAN:{nombre}] Estado global` referenciando los nuevos IDs.
+
+### 4.5 Secuencia de inicio
+
+> **Las escrituras de indexación van SECUENCIALES, no en paralelo.** SQLite no acepta concurrencia. Cada `mem_save` debe terminar y devolver su ID antes de iniciar el siguiente. Ver `engram_ops.md` §0.
 
 ```
-1. mem_session_start
-2. mem_context                        ← verificar si el plan ya existe de sesión anterior
-3. Clasificar criticidad de cada fase
-4. mem_save para cada observación     ← guardar los IDs devueltos
-5. Retener IDs en contexto activo     ← para acceso directo durante la sesión
+1. mem_session_start                  → esperar respuesta
+2. mem_context                        → verificar si el plan ya existe de sesión anterior
+3. mem_save(meta)                     → esperar respuesta, guardar ID
+4. mem_save(restricciones)            → esperar respuesta, guardar ID
+5. mem_save(fase_1)                   → esperar respuesta, guardar ID
+6. mem_save(fase_2)                   → esperar respuesta, guardar ID
+   ... (una a una, nunca en paralelo)
+N. mem_save(estado_global)            → esperar respuesta, guardar ID
+N+1. (Opcional) Modo dry-run          → ver supervision_y_validacion.md §7
+N+2. Retener IDs en contexto activo
 ```
 
-Para planes complejos, considerar generar un **dry-run** antes de delegar la primera fase. Ver `references/supervision_y_validacion.md` §7.
-
-Plantillas completas de contenido en `references/engram_ops.md` §4.
+Plantillas completas y ejemplos en `engram_ops.md` §4.
 
 ---
 
 ## 5. Preparación de la Delegación
 
-Antes de invocar al sub-agente, el orquestador prepara cuatro elementos además del contexto de la fase: acceso a Engram, skills sugeridas, sub-agentes auxiliares disponibles, y alcance protegido.
+Antes de invocar al sub-agente, el orquestador prepara cinco elementos:
 
-### 5.1 Acceso a Engram (consulta proactiva)
+1. **Contexto curado** — extracto de la fase, suficiente para ejecutar sin reconstruir nada.
+2. **Acceso a Engram** — IDs de fase y restricciones, con instrucción de consulta proactiva.
+3. **Skills sugeridas** — qué skills disponibles aplican a la tarea.
+4. **Sub-agentes auxiliares disponibles** — sdd-explore / sdd-archive cuando la fase los amerite.
+5. **Criticidad y modo de validación esperado** — para que el sub-agente sepa qué nivel de rigor se va a aplicar al revisarlo.
 
-Si el sub-agente tiene acceso a Engram, el orquestador **siempre** incluye los IDs relevantes e instruye al sub-agente a consultarlos **al inicio de su tarea**, no solo si tiene dudas. La observación en Engram es la fuente completa; el mensaje de delegación es un extracto.
+Plantilla completa de delegación en `protocolo_delegacion.md` §1.
 
-**Instrucción estándar:**
+### 5.1 Acceso a Engram para el sub-agente
+
+Si el sub-agente tiene acceso a Engram, instruirlo a consultar **al inicio de la tarea**, no solo si tiene dudas.
+
+> **CRÍTICO — sustitución de IDs**: los `{ID_fase_N}` y `{ID_restricciones}` que aparecen en la plantilla son placeholders. El orquestador DEBE reemplazarlos por los IDs reales que `mem_save` devolvió en la Fase 0 antes de enviar la delegación. Si llegan sin sustituir (literalmente con las llaves), el sub-agente no puede consultar nada y falla en silencio. Antes de enviar: verificar que el bloque tenga IDs concretos (ej. `id=4827`), no placeholders.
+
+Bloque a incluir en la delegación, con los IDs ya sustituidos por valores reales:
 
 ```
 Antes de comenzar, consultá Engram para obtener el contexto completo de esta fase:
-  mem_get_observation id={ID_fase_N}          ← contenido completo de la fase
-  mem_get_observation id={ID_restricciones}   ← convenciones y contratos del proyecto
+  mem_get_observation id=<ID_REAL_DE_LA_FASE>          ← contenido completo de la fase
+  mem_get_observation id=<ID_REAL_DE_RESTRICCIONES>    ← convenciones y contratos del proyecto
 
-El mensaje que te pasé es un extracto. La observación en Engram es la fuente completa y vigente.
-Si algo en Engram contradice este mensaje, reportá la discrepancia al orquestador antes de continuar.
+Este mensaje es un extracto. La observación en Engram es la fuente completa y vigente.
+Si algo en Engram contradice este mensaje, reportá la discrepancia antes de continuar.
 NO hagas mem_search genérico ni accedas a otras observaciones del plan.
 NO llames mem_save — el orquestador registra el cierre de fase.
 ```
 
-Si el sub-agente no tiene acceso a Engram: pasar todo el contexto inline y, si reporta insuficiencia, ampliar y re-delegar — nunca exigirle consultar Engram.
+Si el sub-agente no tiene acceso a Engram, el orquestador pasa todo el contexto inline. Si en ese caso el sub-agente reporta insuficiencia, el orquestador re-delega ampliando el contexto inline; nunca le exige consultar Engram.
 
-### 5.2 Skills sugeridas
+### 5.2 Sugerencia de Skills
 
-El orquestador evalúa qué skills del sistema aplican a la fase y las sugiere. No es obligación, es guía.
+El orquestador evalúa qué skills del entorno aplican a la fase y las sugiere con razón concreta. No inventa skills que no existen. Si no hay skills aplicables, omite la sección.
 
 | Dominio / tarea | Skills típicamente relevantes |
 |---|---|
-| Backend Laravel | skill de Laravel, skill de API design |
-| Frontend | skill de frontend-design, skill del framework en uso |
-| Base de datos | skill de DB / migrations |
-| Documentos Word/PDF/planillas | skill docx, skill pdf, skill xlsx |
-| Pruebas / QA | skill de testing del stack |
-| Código genérico | skill de file-reading, skill del lenguaje |
+| Backend Laravel (endpoints, modelos) | skill de Laravel, skill de API design |
+| Frontend (componentes, estado) | skill de frontend-design, skill del framework en uso |
+| Base de datos (migraciones, esquemas) | skill de DB / migrations |
+| Documentos Word / PDF / planillas | skill docx, skill pdf, skill xlsx |
+| Pruebas / QA | skill de testing del stack en uso |
+| Código genérico, scripts, CLI | skill de file-reading, skill del lenguaje |
 
-El orquestador no inventa skills que no existen.
+### 5.3 Regla adicional para Frontend — DESIGN.md
 
-**Frontend — DESIGN.md obligatorio si existe:**
-
-Antes de delegar fases de Frontend, verificar si existe `DESIGN.md` en el repositorio. Si existe, incluirlo como referencia obligatoria:
+Antes de delegar una fase de dominio Frontend, verificar si existe `DESIGN.md` en el repositorio. Si existe, incluirlo como referencia obligatoria:
 
 ```
 Referencia de diseño obligatoria: DESIGN.md
-Antes de implementar cualquier componente, leé DESIGN.md para entender la paleta,
-tipografía, espaciado, componentes base y patrones visuales del proyecto. No
-introduzcas estilos, tokens o componentes que contradigan lo definido allí.
-Si necesitás algo que DESIGN.md no cubre, reportalo al orquestador.
+Antes de implementar cualquier componente, leé DESIGN.md para entender la paleta
+de colores, tipografía, espaciado, componentes base y patrones visuales del proyecto.
+No introduzcas estilos, tokens o componentes que contradigan lo definido allí.
+Si necesitás algo que DESIGN.md no cubre, reportalo al orquestador en lugar de improvisar.
 ```
 
-### 5.3 Sub-agentes auxiliares disponibles
+Si `DESIGN.md` no existe, omitir.
 
-El orquestador sugiere al implementador los sub-sub-agentes que puede spawnear si los necesita: **sdd-explore** para entender código existente, **sdd-archive** para documentar decisiones. Cada sugerencia incluye tips de eficiencia específicos.
+### 5.4 Sub-agentes auxiliares disponibles
 
-Detalles completos, criterios de cuándo aplica cada uno, y plantillas en `references/subagentes_auxiliares.md`.
-
-Solo incluir el bloque cuando alguno aplica. No aplicarlos siempre por reflejo.
-
-### 5.4 Plantilla completa de delegación
-
-Ver `references/protocolo_delegacion.md` §1.
+Cuando la fase pinta candidata a necesitar exploración o documentación, ofrecer sdd-explore y/o sdd-archive como herramientas que el implementador puede spawnear si las necesita. Plantilla, criterios y tips de eficiencia en `subagentes_auxiliares.md` §4.
 
 ---
 
-## 6. Vigilancia: Validación según Criticidad
+## 6. Validación del Entregable
 
-El orquestador valida cada entregable. El **modo** de validación depende de la criticidad de la fase:
+La frecuencia y profundidad de la validación dependen de la criticidad declarada para la fase. Detalle completo en `supervision_y_validacion.md` §3.
 
-- **Fase crítica** → **validación inmediata**: leer código, comparar contra Engram, decidir antes de avanzar.
-- **Fase no crítica** → **validación batch**: acumular hasta 2 fases no críticas seguidas y revisarlas en conjunto, salvo que la siguiente sea crítica (en ese caso, validar el batch antes de delegarla).
+| Criticidad | Modo de validación |
+|---|---|
+| Crítica | Inmediata — validar antes de delegar la siguiente fase |
+| Estándar | Batch — acumular hasta 2 entregables antes de validar, salvo bloqueo / dependencia / sospecha de regresión |
 
-Reglas duras:
-- nunca acumular más de 2 fases sin revisar;
-- una fase crítica rompe el batch (validar lo acumulado primero);
-- nunca cruzar el cierre del plan con fases sin validar.
+### 6.1 Verificaciones obligatorias en cada validación
 
-### 6.1 Decisión obligatoria
+1. Alineación con la observación Engram de la fase (`mem_get_observation id={ID_fase_N}`).
+2. Correctitud técnica local y consistencia con código existente.
+3. Compatibilidad con contratos compartidos entre capas.
+4. Suficiencia del contexto que usó el sub-agente (¿tuvo que inferir algo crítico?).
+
+### 6.2 Decisión y registro
 
 | Estado | Acción |
 |---|---|
 | ✅ Aprobada | Actualizar Engram → avanzar |
 | ⚠️ Aprobada con observaciones | Actualizar Engram con deuda → avanzar |
-| ❌ Rechazada | Diagnosticar causa → re-delegar (ver §6.3) |
+| ❌ Rechazada | Re-delegar con feedback (ver `supervision_y_validacion.md` §4) |
 | 🔒 Bloqueada | Registrar bloqueo en Engram → escalar |
 
-### 6.2 Actualización de Engram al cierre
+### 6.3 Persistencia ante compactación a mitad de delegación
+
+Si el orquestador detecta riesgo de compactación entre delegar y validar, registra un checkpoint adicional:
 
 ```
-mem_save  tipo:"bugfix"
-título: "[PLAN:{nombre}] Estado Fase {N} - {COMPLETADA|BLOQUEADA|RECHAZADA}"
-contenido:
-  estado, fecha_cierre, archivos_tocados, supuestos_usados,
-  desvíos_detectados, deuda_técnica, contexto_fue_suficiente,
-  notas_para_siguiente_agente
-
-mem_save  tipo:"plan"
-título: "[PLAN:{nombre}] Estado global"
-contenido: mapa actualizado con nuevo estado de fase N
+mem_save tipo:"bugfix"
+título: "[PLAN:{nombre}] Checkpoint - Fase {N} delegada, esperando entregable"
+contenido: sub-agente asignado, hora de delegación, estado actual
 ```
 
-**Compactación a mitad de delegación**: si el orquestador siente que se va a compactar entre delegar y validar, hacer un `mem_save` extra: `[PLAN:{nombre}] Fase {N} - Delegada, esperando entregable de {sub-agente}`. Permite al orquestador retomar sin perder el hilo.
-
-### 6.3 Re-delegación tras rechazo
-
-No re-delegar lo mismo de nuevo. Diagnosticar primero la causa: error de ejecución, delegación insuficiente, o inconsistencia del plan. Persistir el intento rechazado en Engram. Construir la nueva delegación corrigiendo lo que falló. Tras 3 intentos rechazados de la misma fase, escalar al humano.
-
-Detalles completos en `references/supervision_y_validacion.md` §5.
-
-### 6.4 Estado zombie
-
-Una fase en `en_curso` sin observación de cierre asociada es un estado zombie. Al recuperar sesión: detectar zombies, inspeccionar repo, decidir entre re-delegar limpio, completar desde estado actual, o rollback. Nunca asumir que un `en_curso` está completo.
-
-Detalles en `references/supervision_y_validacion.md` §6.
-
-Detalles operativos completos del modo inmediato y modo batch en `references/supervision_y_validacion.md` §3 y §4.
+Esto permite recuperar el estado intermedio si el contexto se pierde antes de validar.
 
 ---
 
-## 7. Recuperación de Estado en Nueva Sesión
-
-Cuando el orquestador inicia en contexto nuevo (compactación, nueva sesión, agente diferente):
+## 7. Recuperación de Estado en Nueva Sesión o Compactación
 
 ```
-1. mem_context                               ← inyecta contexto de sesión anterior
-2. mem_search "[PLAN:{nombre}] Estado global" → obtener ID más reciente
-3. mem_get_observation id={ID_estado_global} → leer fases pendientes/en_curso/bloqueadas
-4. Detectar zombies (en_curso sin cierre)   → resolver antes de continuar
-5. mem_search "[PLAN:{nombre}] Restricciones" → cargar convenciones globales
+1. mem_context
+   → inyecta contexto de sesión anterior automáticamente
+
+2. mem_search "[PLAN:{nombre}] Estado global"
+3. mem_get_observation id={ID_estado_global}
+   → leer qué fases están pendientes, en curso o bloqueadas
+
+4. Detectar zombies:
+   Para cada fase "en_curso":
+     mem_search "[PLAN:{nombre}] Estado Fase {N}"
+     → si NO existe cierre correspondiente, es zombie
+     → resolver según supervision_y_validacion.md §5
+
+5. mem_search "[PLAN:{nombre}] Restricciones"
+6. Continuar desde la primera fase no completada
 ```
 
-Regla: el orquestador nunca asume que una fase está completa porque "recuerda" haberla delegado. Lee el estado real desde Engram.
+**Regla**: nunca asumir que una fase está completa porque el orquestador "recuerda" haberla delegado. Leer siempre el estado real desde Engram.
 
 ---
 
-## 8. Cierre del Plan: Auditoría Final
+## 8. Auditoría Final del Plan
 
-**Obligatoria. No saltarla aunque todas las fases hayan sido validadas individualmente.**
+Cuando todas las fases reportan estado de cierre, el orquestador no termina ahí. Ejecuta una auditoría final que verifica:
 
-Una fase puede pasar su validación local y aun así dejar el plan globalmente inconsistente. La auditoría final detecta desvíos acumulados antes del cierre.
+- **Cobertura del objetivo**: ¿todo lo que el plan se proponía está cubierto?
+- **Consistencia inter-fases**: ¿los contratos compartidos quedaron alineados?
+- **Desvíos**: ¿alguna fase introdujo cambios fuera de su alcance?
+- **Deuda acumulada**: ¿qué quedó pendiente y qué es bloqueante?
 
-### 8.1 Qué revisa la auditoría
-
-- **Cobertura del plan** — ¿todas las fases están en estado terminal? ¿hay zombies sin resolver?
-- **Consistencia entre fases** — ¿los contratos definidos al inicio se respetan al final? ¿hay archivos modificados de forma incompatible entre fases?
-- **Desvíos acumulados** — ¿cuántas fases se aprobaron con observaciones? ¿hay drift respecto a la intención original?
-- **Deuda técnica** — ¿qué quedó pendiente? ¿requiere acción inmediata?
-- **Archivos prohibidos** — ¿algún sub-agente tocó archivos fuera de su alcance declarado?
-
-### 8.2 Veredicto
-
-| Veredicto | Acción |
-|---|---|
-| `implementacion_consistente` | Cerrar el plan normalmente |
-| `implementacion_con_observaciones` | Cerrar dejando deuda visible al humano |
-| `implementacion_inconsistente` | **No cerrar limpio.** Escalar al humano con el reporte |
-
-### 8.3 Persistencia del cierre
-
-Solo si el veredicto permite cerrar:
+Solo cuando la auditoría confirma cobertura + consistencia, el orquestador escribe el cierre final y termina la sesión. Detalle completo en `supervision_y_validacion.md` §6.
 
 ```
-mem_save  tipo:"plan" — "[PLAN:{nombre}] Auditoría final de cierre"
-mem_save  tipo:"plan" — "[PLAN:{nombre}] Cierre final"
-mem_session_summary — Goal / Discoveries / Accomplished / Files + veredicto
-mem_session_end
+# Las cuatro operaciones siguientes son SECUENCIALES, una termina antes que la siguiente.
+# Disparar en paralelo rompe SQLite. Esperar respuesta de cada una antes de continuar.
+
+1. mem_save tipo:"plan"
+   título: "[PLAN:{nombre}] Auditoría final"
+   contenido: cobertura, consistencia, desvíos, deuda, recomendaciones, apto_para_uso
+   → esperar respuesta
+
+2. mem_save tipo:"plan"
+   título: "[PLAN:{nombre}] Cierre final"
+   → esperar respuesta
+
+3. mem_session_summary
+     Goal / Discoveries / Accomplished / Files
+   → esperar respuesta
+
+4. mem_session_end
 ```
 
-Procedimiento completo de auditoría en `references/supervision_y_validacion.md` §8.
+Si la auditoría detecta desvíos bloqueantes, **no se cierra el plan**: se abre fase de remediación o se escala al humano.
 
 ---
 
 ## 9. Reglas de Control Obligatorias
 
 - Indexar el plan completo en Engram **antes** de delegar la primera fase.
-- Clasificar criticidad de cada fase al indexarla.
+- **Escrituras a Engram siempre secuenciales, NUNCA en paralelo.** SQLite no soporta concurrencia: cada `mem_save` debe terminar y devolver su ID antes de iniciar el siguiente. Aplica a indexación inicial, cierres de fase, auditoría final y cualquier escritura. Ver `engram_ops.md` §0.
+- **Reemplazar los placeholders de IDs por valores reales antes de delegar.** Si la delegación incluye `{ID_fase_N}` literalmente, el sub-agente no puede consultar Engram. Sustituir por los IDs concretos devueltos por `mem_save`.
+- Clasificar la criticidad de cada fase al indexarla.
 - Llamar `mem_session_start` al inicio y `mem_session_summary` + `mem_session_end` al cerrar.
 - Guardar los IDs devueltos por `mem_save` durante la sesión activa.
-- Validar fases críticas inmediatamente; no acumular más de 2 fases no críticas sin revisar.
-- Leer código real al validar — no confiar solo en el reporte del sub-agente.
-- Actualizar Engram inmediatamente tras aprobar o rechazar cada entregable.
-- Re-delegar solo tras diagnosticar la causa del rechazo (máx. 3 intentos por fase).
-- Detectar y resolver zombies al recuperar sesión — nunca asumir que `en_curso` está completo.
-- Ejecutar la auditoría final antes del cierre — sin excepciones.
-- Ante compactación inminente: hacer `mem_save` extra del estado actual + `mem_session_summary`.
+- Validar fases críticas inmediatamente; nunca acumular críticas.
+- Validar fases estándar al menos cada 2 entregables.
+- Re-delegar con feedback estructurado tras un rechazo, no repetir la delegación original.
+- No avanzar si existe divergencia contractual no resuelta.
+- No permitir que sub-agentes usen `mem_search` libre ni `mem_save` sin autorización.
+- Ejecutar auditoría final antes de marcar el plan como completado.
+- Ante compactación inminente: registrar checkpoint y llamar `mem_session_summary`.
 
 ---
 
-## 10. Anti-Patrones
+## 10. Anti-Patrones a Evitar
 
-- No indexar el plan en Engram antes de comenzar.
-- No clasificar criticidad — todas las fases tratadas igual.
-- Validar fases críticas en modo batch — el costo de un error tardío es exponencial.
-- Acumular 3+ fases sin revisar.
-- Confiar en el reporte del sub-agente sin leer código.
-- Re-delegar lo mismo tras un rechazo, sin diagnosticar causa.
-- Ignorar zombies al recuperar sesión.
-- Saltar la auditoría final porque "todas las fases fueron aprobadas".
-- No incluir IDs Engram en delegaciones cuando el sub-agente tiene acceso.
-- Sugerir sdd-explore/sdd-archive sin tips específicos para la fase.
-- Inventar skills que no existen en el entorno.
+- Disparar varios `mem_save` en paralelo (Promise.all, tool calls simultáneos): rompe SQLite.
+- Pasar la delegación con placeholders `{ID_fase_N}` sin reemplazar por IDs reales.
+- Delegar sin indexar el plan en Engram primero.
+- Ejecutar todas las fases y validar solo al final.
+- Tratar todas las fases con la misma frecuencia de validación (críticas y estándar mezcladas).
+- Re-delegar tras rechazo sin pasar el feedback del intento previo.
+- Cerrar el plan sin auditoría final del conjunto.
+- Asumir que el estado en memoria activa coincide con el estado en Engram.
+- Permitir que sub-agentes consulten Engram con queries genéricas.
+- Sugerir skills o sub-agentes que no existen en el entorno.
+- Incluir IDs Engram pero no instruir su consulta proactiva al inicio.
+- Encadenar fases sin actualizar Engram entre una y otra.
+- Ignorar fases zombie al recuperar sesión.
+- Cerrar el plan con desvíos detectados sin escalar.
 
 ---
 
 ## 11. Regla Central
 
-**El orquestador delega ejecución, no responsabilidad. Vigila cada entregable con rigor proporcional a la criticidad de la fase. Engram es la fuente de verdad del plan; las skills y sub-agentes auxiliares son herramientas que el orquestador sugiere al implementador. La auditoría final cierra el ciclo: ninguna implementación se da por completada sin verificar consistencia global.**
+**El orquestador no delega responsabilidad: delega ejecución. Su trabajo no termina cuando el sub-agente entrega; termina cuando el plan completo está auditado, consistente y registrado en Engram. Las fases críticas se vigilan inmediatamente; las estándar al menos cada 2; el plan completo siempre. Engram es la fuente de verdad; las skills y sub-agentes auxiliares son herramientas que el orquestador ofrece y el sub-agente decide usar.**
 
 ---
 
 ## 12. Versión Breve para Activación Rápida
 
-1. **Indexar** el plan en Engram + clasificar criticidad de cada fase.
-2. **Preparar** delegación: contexto curado + IDs Engram + skills + sub-agentes auxiliares.
-3. **Delegar** una fase a la vez.
-4. **Vigilar** según criticidad: inmediata para críticas, batch (≤2) para no críticas.
-5. **Validar** leyendo código real, no solo el reporte.
-6. **Actualizar** Engram tras cada cierre de fase.
-7. **Re-delegar** con diagnóstico si hay rechazo.
-8. **Auditar** consistencia global antes del cierre del plan.
+1. **Indexar** plan en Engram (`mem_save` por fase, con criticidad declarada, + estado global).
+2. **Preparar delegación**: contexto curado, IDs Engram, skills sugeridas, sub-agentes auxiliares ofrecidos, criticidad declarada.
+3. **Delegar** una fase a la vez al sub-agente correspondiente.
+4. **Validar** según criticidad: crítica → inmediato, estándar → cada 2.
+5. **Re-delegar** con feedback estructurado si hay rechazo (máximo 3 intentos antes de escalar).
+6. **Actualizar** Engram con estado real tras cada validación.
+7. **Auditar** el plan completo al cerrar todas las fases: cobertura, consistencia, desvíos, deuda.
+8. **Recuperar** con `mem_context` + `mem_search` ante compactación o nueva sesión; detectar zombies.
 
-El orquestador no es un repartidor de tareas: es un supervisor activo de la implementación.
+El orquestador vigila tanto como delega. Cada fase debe quedar bien hecha; el plan entero debe quedar coherente.

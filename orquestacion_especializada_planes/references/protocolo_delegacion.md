@@ -54,15 +54,29 @@ El orquestador debe estructurar cada delegación con este esquema:
 - `[fragmento, contrato, esquema o archivo base]`
 
 ### Acceso a Engram
+
+> **REGLA CRÍTICA PARA EL ORQUESTADOR**: los placeholders `{ID_fase_N}` y `{ID_restricciones}` NO se pasan literalmente. El orquestador DEBE reemplazarlos por los IDs reales que devolvió `mem_save` en la Fase 0. Si los placeholders llegan al sub-agente sin sustituir, el sub-agente no puede consultar Engram y falla en silencio. Antes de enviar la delegación, verificar que los IDs del bloque sean números/strings reales, no placeholders entre llaves.
+
+Bloque a incluir en la delegación (con IDs ya sustituidos):
+
 ```
 Antes de comenzar, consultá Engram para obtener el contexto completo de esta fase:
-  mem_get_observation id={ID_fase_N}          ← contenido completo de la fase
-  mem_get_observation id={ID_restricciones}   ← convenciones y contratos del proyecto
+  mem_get_observation id=<ID_REAL_DE_LA_FASE>          ← contenido completo de la fase
+  mem_get_observation id=<ID_REAL_DE_RESTRICCIONES>    ← convenciones y contratos del proyecto
 
 Este mensaje es un extracto. La observación en Engram es la fuente completa y vigente.
 Si algo en Engram contradice este mensaje, reportá la discrepancia antes de continuar.
 NO hagas mem_search genérico ni accedas a otras observaciones del plan.
 NO llames mem_save — el orquestador registra el cierre de fase.
+```
+
+Ejemplo de bloque correctamente preparado (los IDs son reales, no placeholders):
+
+```
+Antes de comenzar, consultá Engram para obtener el contexto completo de esta fase:
+  mem_get_observation id=4827          ← contenido completo de la fase
+  mem_get_observation id=4823          ← convenciones y contratos del proyecto
+...
 ```
 *(Omitir esta sección si el sub-agente no tiene acceso a Engram; en ese caso pasar todo el contexto inline. Si en ese caso el sub-agente reporta insuficiencia de contexto, el orquestador re-delega ampliando el contexto inline; nunca le exige consultar Engram.)*
 
