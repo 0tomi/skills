@@ -10,29 +10,29 @@ Cualquiera de los siguientes instaladores funciona. El más establecido es `skil
 
 ```bash
 # Instalar planificar
-npx skills add 0tomi/my-agents-skills --skill planificar
+npx skills add 0tomi/skills --skill planificar
 
 # Instalar a un agente específico
-npx skills add 0tomi/my-agents-skills --skill planificar -a claude-code
-npx skills add 0tomi/my-agents-skills --skill planificar -a opencode
+npx skills add 0tomi/skills --skill planificar -a claude-code
+npx skills add 0tomi/skills --skill planificar -a opencode
 ```
 
 ### Todas las skills del repo
 
 ```bash
-npx skills add 0tomi/my-agents-skills --all
+npx skills add 0tomi/skills --all
 ```
 
 ### Listar lo que hay sin instalar
 
 ```bash
-npx skills add 0tomi/my-agents-skills --list
+npx skills add 0tomi/skills --list
 ```
 
 ### Alternativa: openskills
 
 ```bash
-npx openskills install 0tomi/my-agents-skills
+npx openskills install 0tomi/skills
 ```
 
 ## Skills incluidas
