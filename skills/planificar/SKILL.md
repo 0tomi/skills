@@ -1,13 +1,14 @@
 ---
 name: planificar
-description: Trigger only when the user explicitly wants to plan implementation work before
-  coding, not for casual mentions of "plan". Good triggers include "planificá",
-  "armá un plan", "hacé un plan de implementación", "antes de implementar",
-  "pensemos cómo hacer", "scope this out", "draft a plan for", "break this
-  feature down", and "roadmap for". Use this when the user has a feature, change,
-  or technical problem and wants to think through approach, structure, risks, and
-  sequencing before writing code. Clarify first when ambiguity would materially
-  change the plan.
+description: This skill is for planning implementation work before coding. Use it when the
+  user wants to think through the approach, structure, risks, tradeoffs, and
+  sequencing of a feature, change, or technical problem before any code is
+  written. Trigger only on explicit planning intent, not casual mentions of
+  "plan". Good triggers include "planificá", "armá un plan", "hacé un plan de
+  implementación", "necesito un plan para", "antes de implementar", "pensemos
+  cómo hacer", "scope this out", "draft a plan for", "break this feature down",
+  and "roadmap for". Treat planning as a conversation: clarify first when
+  ambiguity would materially change the plan.
 ---
 
 # Planificar
