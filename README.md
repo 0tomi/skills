@@ -1,4 +1,4 @@
-# my-agents-skills
+# skills
 
 Skills propias para agentes de código (Claude Code, OpenCode, Codex, Cursor, Antigravity, Gemini CLI y otros). Pensadas, probadas y curadas en el día a día.
 
