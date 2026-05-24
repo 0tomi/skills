@@ -38,13 +38,15 @@ A planning conversation that asks two sharp questions and then delivers a tight 
 
 ---
 
-## Before drafting, settle three things
+## Before drafting, settle a few things
 
 **1. Has the repo been explored?** If the conversation already shows file reads, greps, or pasted code covering what the plan will touch, skip ahead. If not, explore first — see `references/exploration.md`. Planning blind produces guesses dressed as plans.
 
-**2. Will this be orchestrated across agents in parallel?** Only if the user says so. Default is sequential. If yes, read `references/orchestration.md` for the additions a parallel-ready plan needs (contracts, dependency graph, merge criteria).
+**2. Are the available skills known?** If the client already surfaces them (e.g. an `<available_skills>` block, a tool listing with descriptions), you have what you need. If not — or if you only know names without descriptions — read what's in the project's skill directories (`.claude/skills/`, `.agents/skills/`, or wherever skills live here) before drafting. A skill you've never read isn't one you can honestly recommend. See `references/skills.md`.
 
-**3. What shape fits the work?** Pick one, don't default to "phases" out of habit:
+**3. Will this be orchestrated across agents in parallel?** Only if the user says so. Default is sequential. If yes, read `references/orchestration.md` for the additions a parallel-ready plan needs (contracts, dependency graph, merge criteria).
+
+**4. What shape fits the work?** Pick one, don't default to "phases" out of habit:
 
 - **Phases** — sequential steps that each validate before the next. Use when work has true ordering and milestones worth pausing at.
 - **Parts** — frontend / backend / migration / tests, no order implied. Use when work splits cleanly by surface and the order is not the interesting part.
@@ -69,6 +71,8 @@ These pieces usually matter. Include the ones that earn their place. A 3-line bu
 - **Execution notes** — only if non-obvious: order rule, what to do if validation fails, anything an executor needs that isn't already in the units.
 
 For each unit of work, the ingredients that usually matter: a one-sentence goal, the concrete tasks (verb-led, executable), what files it touches (by reference to the affected surface), how to know it's done (validation), and what could break (risks). For parallel-ready plans, add inputs/outputs as a contract — see the orchestration reference.
+
+Optionally, with the available skills already in mind (see step 2 above), for each unit ask whether one would genuinely help the work it describes. When it does, name it as a recommendation on that unit; when nothing fits, leave the field out. Don't list skills that only loosely relate, and don't add the field to every unit for symmetry. See `references/skills.md` for how to decide.
 
 Skip ingredients that don't apply. A plan that says "Risks: none" because the unit truly has none is fine. A plan that hides risks is not.
 
@@ -132,4 +136,5 @@ Load only when needed:
 - `references/exploration.md` — when the repo hasn't been explored.
 - `references/orchestration.md` — when the plan will be parallelized across agents.
 - `references/environments.md` — when the executing environment is known and worth tailoring to.
+- `references/skills.md` — when the environment exposes skills and the plan could recommend some per unit.
 - `references/examples.md` — three short skeletons (phases / parts / roadmap) when a concrete shape helps.
