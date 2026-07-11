@@ -34,7 +34,7 @@ Sections, roughly:
 - User flow — a small diagram (SVG or stepwise blocks), not paragraphs.
 - Data sketch — only if it changes the shape (a small entity diagram, a JSON shape).
 - Edge cases — short list with each one named, not described in prose.
-- Handoff block at the bottom: locked choices, open questions, copy-as-prompt button.
+- Open questions at the bottom, when something is deliberately unresolved.
 
 Single spec is dense. Use tabs or accordions when sections are deep enough to compete for attention.
 
@@ -63,16 +63,15 @@ Sections, roughly:
 
 - A live preview at the top (the thing being tuned, rendering from current control state).
 - A control panel — sliders, pickers, toggles — grouped by what they affect.
-- A "current state" readout showing the values picked.
-- An export — a button copying the state as JSON, CSS variables, or a prompt the user pastes into the next agent.
+- A "current state" readout showing the values picked, with a small copy button (JSON or CSS variables) — the user pastes those values when invoking `planificar`.
 
-The whole artifact is preview + controls + export. Don't bury the preview behind a fold; the user is here to fiddle.
+The whole artifact is preview + controls + readout. Don't bury the preview behind a fold; the user is here to fiddle.
 
 ---
 
 ## Research / explainer
 
-Use for investigation, not implementation. When the user asked "how does X work" or "what are the options for Y" without an implementation intent yet.
+Use when the user doesn't know the territory yet and wants to learn it before deciding anything — "how does X work", "what are the options for Y" — with no implementation intent required.
 
 Sections, roughly:
 

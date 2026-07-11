@@ -6,18 +6,12 @@ Inline JS patterns for the standalone HTML. The bar: a control earns its place w
 
 - **Tabs across alternatives** — when 2–4 versions of the same thing live in the artifact and only one should show at once. Keep semantic markup (`role="tablist"`, `aria-selected`) so keyboard nav works.
 - **Sliders / inputs that rerender a preview** — for tuning values (timing, density, weight, count). Mutate CSS variables for purely visual tuning; reach for DOM re-renders only when the change is structural (cards added/removed, layout flipping).
-- **Editable fields composing a prompt** — fields write to a state object; a "Copy as prompt" button reads it through a template. Render the prompt preview live, not just on click — the user wants to see what they're about to copy.
+- **Editable fields with a live summary** — fields write to a state object; a readout updates from it so the cumulative effect of choices is visible.
 - **Drag-and-drop ordering** — for curation work (prioritize, bucket, triage). Native HTML5 DnD is enough. For short lists, up/down buttons are simpler than drag.
-- **Live summaries** — a readout that updates from inputs, so the cumulative effect of choices is visible.
 
-## Always export
+## Copy buttons
 
-If the artifact has any state worth carrying out, end with one of:
-
-- **Copy as prompt** — a templated string the user pastes into the next agent. Good when state maps cleanly to instructions.
-- **Copy as JSON** — the raw state object. Good when the next agent will parse it, or the user wants to commit it to a file.
-
-Both render live above their button so the user sees what's being copied. `navigator.clipboard.writeText` with a brief "Copied" toggle on the button is enough confirmation.
+Where a control holds state worth carrying out — tuned values, picked options, edited text — give it a small copy button (JSON, CSS variables, or a short line of values). The clipboard is the only channel back to the agent: the user pastes those values when invoking `planificar`. Render what will be copied live, so the user sees it before clicking; `navigator.clipboard.writeText` with a brief "Copied" toggle is enough confirmation. Controls whose state the user can just say in chat ("me quedo con la B") don't need one.
 
 ## Architectural constraints
 

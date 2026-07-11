@@ -38,7 +38,7 @@ Worth surfacing:
 
 - Code snippets the user will recognize, when annotating them changes how the proposal lands.
 - A small "today vs proposed" comparison when the change is a redesign of something existing.
-- File paths in the handoff block when the next agent needs to know where to start.
+- File paths inside the change sections, when knowing where a change lands anchors the proposal.
 
 Not worth surfacing:
 
@@ -48,4 +48,4 @@ Not worth surfacing:
 
 ## Exit criterion
 
-You're done exploring when you can mock the proposed change without guessing what the current shape is, and the handoff block can name the actual surface the next agent will touch. If something critical is still unknown after a real attempt to find out, treat it as a *Block* (see *Handling gaps* in SKILL.md) rather than guessing.
+You're done exploring when you can prototype the proposed change without guessing what the current shape is, and each change section can name the actual surface it touches. If something critical is still unknown after a real attempt to find out, treat it as a *Block* (see *Handling gaps* in SKILL.md) rather than guessing.
