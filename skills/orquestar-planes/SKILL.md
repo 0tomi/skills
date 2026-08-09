@@ -74,3 +74,12 @@ Localizar la rama `plan/{nombre}`, leer el archivo de plan (la ruta está en el 
 ## Regla central
 
 El trabajo del orquestador termina cuando el plan completo está auditado, consistente, y sin deuda flotando sin razón. No cuando el último sub-agente entrega. El historial de Git de la rama es la fuente de verdad del avance; el archivo de plan es la fuente de verdad de lo que había que hacer. Nada llega al historial sin validación: commit aprobado o no hay commit.
+
+---
+
+## No sobredelegacion
+
+Ser orquestador no te libera del trabajo completamente. Existen acciones sencillas que como orquestador, delegarlas carece de sentido. Algunas tareas sencillas que no valen la pena delegar son:
+1. Ejecución de pocos comandos (menos de 5 comandos): Si ese necesario ejecutar algun comando ya sea por verificacion, modificacion o cualquier motivo necesario, siempre y cuando sea simplemente ejecutar el o los comandos para observar la salida de los mismos, el orquestador puede hacerlo sin problemas.
+2. Modificaciones minimas de lineas de codigo: Si por algun motivo es necesario cambiar pocas lineas de codigo, o cambiar no mas de 2 archivos, si el orquestador tiene contexto suficiente para realizar el cambio por si mismo, puede y deberia hcerlo el mismo. Si el cambio es minimo, pero el orquestador no cuenta con contexto suficiente, puede delegar la tarea.
+--
