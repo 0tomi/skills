@@ -59,7 +59,7 @@ Que los sub-agentes apliquen las skills correctas es responsabilidad del orquest
 
 1. **Mapear antes de delegar.** Si el plan ya sugiere skills por fase, transcribirlas. Si no, relevar las disponibles en el entorno (lista tipo `<available_skills>`, o `.claude/skills/`, `.agents/skills/`, etc.) una sola vez al inicio, y evaluar fit por fase.
 2. **Pasar nombre + ruta al SKILL.md + instrucción imperativa**: el sub-agente debe leer la skill antes de empezar y aplicarla. Si decide no seguirla en algún punto, lo justifica en su reporte. Sin ruta, la skill no se carga; sin instrucción, se ignora.
-3. **Verificar en la validación.** El reporte del sub-agente incluye el campo `Skills aplicadas`; el orquestador chequea que las aplicó o que la justificación para no hacerlo es sólida. Justificación floja → cuenta como desviación.
+3. **Verificar en la validación.** El reporte del sub-agente incluye el campo `Skills aplicadas`; el orquestador chequea que las aplicó o que la justificación para no seguirlas es sólida. Justificación floja → cuenta como desviación.
 
 Si ninguna skill aplica a la fase, omitir la sección entera: una skill irrelevante inunda el contexto del sub-agente sin aportar. Nunca inventar skills que no se verificaron en el entorno. Mecánica y bloques en `protocolo_delegacion.md`.
 
