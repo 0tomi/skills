@@ -1,16 +1,15 @@
 ---
 name: gemini-cli
-description: Invoke Gemini models non-interactively through the installed CLI, check quota, and consume agent results.
-user-invocable: true
+description: Invoke Gemini models non-interactively through the installed CLI, check subscription quota, and consume agent responses.
 ---
 
-# Gemini Headless
+# Gemini CLI
 
 Use the installed `agy` CLI to invoke Gemini models non-interactively.
 
 ## Initial quota check
 
-Before the first Gemini invocation of the current orchestration run, check the available subscription quota:
+Before the first Gemini invocation of the current orchestration run, check subscription quota:
 
 ```bash
 agy -p "/usage" --output-format json
@@ -18,47 +17,33 @@ agy -p "/usage" --output-format json
 
 Perform this check once before using Gemini for the first time.
 
-If `/usage` reports that the intended Gemini model has no remaining quota:
+Inspect the `Gemini Models` quota group.
 
-* Do not invoke that model.
-* Do not retry it.
+If either required quota bucket has no remaining quota:
+
+* Do not invoke Gemini.
+* Do not retry Gemini.
 * Treat Gemini as unavailable for the remainder of the current orchestration run.
 
-If quota is available, Gemini may be used normally.
+If quota remains available, Gemini may be used normally.
 
 Do not run `/usage` before every successful invocation.
 
-## Basic invocation
-
-```bash
-agy -p "<PROMPT>"
-```
-
-`-p`, `--print`, and `--prompt` are equivalent.
-
-The command executes the prompt, prints the Gemini agent result to `stdout`, and exits.
-
-Diagnostics and errors are written to `stderr`.
-
 ## Default invocation
 
-Prefer machine-readable JSON:
+Invoke Gemini with:
 
 ```bash
 agy -p "<PROMPT>" \
   --model <MODEL> \
-  --effort high \
-  --output-format json \
   --print-timeout 10m
 ```
 
-Always use:
+The command waits for Gemini to complete, prints its final response to `stdout`, and exits.
 
-```text
---effort high
-```
+Diagnostics and errors are written to `stderr`.
 
-Never use `low` or `medium`.
+Use the normal text output by default. Do not request JSON output for ordinary Gemini invocations.
 
 ## Models
 
@@ -69,6 +54,8 @@ gemini-3.7-flash-high
 gemini-3.1-pro-high
 ```
 
+These model variants already select high reasoning effort. Do not add an `--effort` flag.
+
 Inspect currently available models with:
 
 ```bash
@@ -77,86 +64,43 @@ agy models
 
 Do not invent model slugs.
 
-If an explicitly selected model is unavailable or invalid, treat that as an execution failure rather than silently substituting another model.
-
-## JSON output
-
-Use:
-
-```bash
---output-format json
-```
-
-A result has this general structure:
-
-```json
-{
-  "conversation_id": "...",
-  "status": "SUCCESS",
-  "response": "...",
-  "duration_seconds": 0,
-  "num_turns": 1,
-  "usage": {
-    "input_tokens": 0,
-    "output_tokens": 0,
-    "thinking_tokens": 0,
-    "cache_read_tokens": 0,
-    "total_tokens": 0
-  }
-}
-```
-
-The final textual result is available in:
-
-```text
-response
-```
-
-It may be extracted with:
-
-```bash
-agy -p "<PROMPT>" \
-  --model <MODEL> \
-  --effort high \
-  --output-format json \
-  | jq -r '.response'
-```
+If an explicitly selected model is unavailable or invalid, treat it as an execution failure rather than silently substituting another model.
 
 ## Quota failure handling
 
-If a Gemini invocation later fails, refuses to execute, or returns no usable response, do not immediately assume the subscription quota is exhausted.
-
-First verify quota again:
+If a Gemini invocation later fails, refuses to execute, times out unexpectedly, or produces no usable response, verify subscription quota:
 
 ```bash
 agy -p "/usage" --output-format json
 ```
 
-If `/usage` confirms that the relevant Gemini quota is exhausted:
+If `/usage` confirms exhausted Gemini quota:
 
 * Stop using Gemini.
 * Do not retry the failed request.
-* Do not probe Gemini repeatedly.
+* Do not repeatedly probe Gemini.
 * Treat Gemini as unavailable for the remainder of the current orchestration run.
 
-If `/usage` shows remaining quota, the failure is not considered quota exhaustion. Handle it as a normal execution, model, permission, timeout, or service failure.
+If `/usage` reports remaining quota, do not classify the failure as quota exhaustion.
 
-Temporary service errors or capacity errors must not permanently disable Gemini unless `/usage` confirms exhausted quota.
+Handle it as a normal execution, model, permission, timeout, configuration, or service failure.
+
+Temporary service or capacity failures must not disable Gemini unless `/usage` confirms exhausted quota.
 
 ## Streaming
 
-When intermediate execution information is required:
+Use streaming only when intermediate execution supervision is useful:
 
 ```bash
 agy -p "<PROMPT>" \
   --model <MODEL> \
-  --effort high \
-  --output-format stream-json
+  --output-format stream-json \
+  --print-timeout 10m
 ```
 
 `stream-json` emits newline-delimited JSON events.
 
-Relevant event types include:
+Relevant events include:
 
 ```text
 init
@@ -174,7 +118,7 @@ result
 
 The final `result` event contains the terminal result.
 
-Prefer normal `json` output when intermediate supervision is unnecessary.
+For ordinary Gemini invocations, prefer the default text output instead.
 
 ## Agent selection
 
@@ -184,48 +128,45 @@ List configured agents with:
 agy agents
 ```
 
-Select one with:
+Select a specific configured agent with:
 
 ```bash
 --agent <AGENT_NAME>
 ```
 
-Command structure:
+Example:
 
 ```bash
 agy -p "<PROMPT>" \
   --agent <AGENT_NAME> \
   --model <MODEL> \
-  --effort high \
-  --output-format json
+  --print-timeout 10m
 ```
+
+Use `--agent` only when a particular configured Gemini agent is required.
 
 ## Conversations
 
-Executions start without previous conversation context unless explicitly resumed.
-
-Continue the latest conversation:
+Continue the latest conversation with:
 
 ```bash
 agy -p "<PROMPT>" --continue
 ```
 
-Equivalent shorthand:
+or:
 
 ```bash
 agy -p "<PROMPT>" -c
 ```
 
-Resume a specific conversation:
+Resume a known conversation with:
 
 ```bash
 agy -p "<PROMPT>" \
   --conversation <CONVERSATION_ID>
 ```
 
-`conversation_id` is available in JSON results.
-
-When explicitly selecting a model, continue using `--effort high`.
+Prefer independent invocations unless previous Gemini conversation context is specifically required.
 
 ## Timeout
 
@@ -239,26 +180,6 @@ Recommended default:
 
 ```bash
 --print-timeout 10m
-```
-
-## Structured output
-
-Constrain the final result with a JSON Schema when required:
-
-```bash
---json-schema '<JSON_SCHEMA>'
-```
-
-When combined with:
-
-```bash
---output-format json
-```
-
-the parsed result is available through:
-
-```text
-structured_output
 ```
 
 ## Permissions
@@ -281,48 +202,27 @@ Automatically approve permission requests with:
 
 Do not use `--dangerously-skip-permissions` unless unrestricted tool execution is explicitly intended.
 
-## Status and errors
+## Execution failures
 
-For JSON output, inspect:
+A hard failure may produce:
 
-```text
-status
-```
+* a non-zero process exit code
+* diagnostic output on `stderr`
+* an empty or unusable response
+* a timeout
 
-Possible statuses include:
-
-```text
-SUCCESS
-ERROR
-CANCELED
-INTERRUPTED
-INVALID
-WAITING
-RUNNING
-```
-
-Failure details may appear in:
-
-```text
-error
-```
-
-Hard execution failures may also produce a non-zero process exit code and diagnostic output on `stderr`.
-
-A failed Gemini invocation must trigger the quota verification procedure above when quota exhaustion is a plausible cause.
+When a failure could plausibly be caused by exhausted subscription quota, run `/usage` before deciding whether Gemini remains available.
 
 ## Default command
 
 ```bash
 agy -p "<PROMPT>" \
-  --model <MODEL> \
-  --effort high \
-  --output-format json \
+  --model gemini-3.7-flash-high \
   --print-timeout 10m
 ```
 
 Before the first Gemini invocation, check `/usage`.
 
-After successful invocations, continue normally without repeatedly checking quota.
+After successful invocations, continue without repeatedly checking quota.
 
-If a later Gemini invocation fails or refuses to produce a usable result, check `/usage` again. If quota is exhausted, stop using Gemini for the remainder of the current orchestration run.
+If a later invocation fails or refuses to produce a usable result, check `/usage` again. If Gemini quota is exhausted, stop using Gemini for the remainder of the current orchestration run.
