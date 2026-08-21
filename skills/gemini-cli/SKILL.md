@@ -12,7 +12,7 @@ Use the installed `agy` CLI to invoke Gemini models non-interactively.
 Before the first Gemini invocation of the current orchestration run, check subscription quota:
 
 ```bash
-agy -p "/usage" --output-format json
+agy -p "/usage" 
 ```
 
 Perform this check once before using Gemini for the first time.
@@ -36,7 +36,7 @@ Invoke Gemini with:
 ```bash
 agy -p "<PROMPT>" \
   --model <MODEL> \
-  --print-timeout 10m
+  --print-timeout 30m
 ```
 
 The command waits for Gemini to complete, prints its final response to `stdout`, and exits.
@@ -71,7 +71,7 @@ If an explicitly selected model is unavailable or invalid, treat it as an execut
 If a Gemini invocation later fails, refuses to execute, times out unexpectedly, or produces no usable response, verify subscription quota:
 
 ```bash
-agy -p "/usage" --output-format json
+agy -p "/usage"
 ```
 
 If `/usage` confirms exhausted Gemini quota:
@@ -94,8 +94,7 @@ Use streaming only when intermediate execution supervision is useful:
 ```bash
 agy -p "<PROMPT>" \
   --model <MODEL> \
-  --output-format stream-json \
-  --print-timeout 10m
+  --print-timeout 30m
 ```
 
 `stream-json` emits newline-delimited JSON events.
@@ -140,7 +139,7 @@ Example:
 agy -p "<PROMPT>" \
   --agent <AGENT_NAME> \
   --model <MODEL> \
-  --print-timeout 10m
+  --print-timeout 30m
 ```
 
 Use `--agent` only when a particular configured Gemini agent is required.
@@ -179,7 +178,7 @@ Override the headless timeout with:
 Recommended default:
 
 ```bash
---print-timeout 10m
+--print-timeout 30m
 ```
 
 ## Permissions
@@ -218,7 +217,7 @@ When a failure could plausibly be caused by exhausted subscription quota, run `/
 ```bash
 agy -p "<PROMPT>" \
   --model gemini-3.7-flash-high \
-  --print-timeout 10m
+  --print-timeout 30m
 ```
 
 Before the first Gemini invocation, check `/usage`.
