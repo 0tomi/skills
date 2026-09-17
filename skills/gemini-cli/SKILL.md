@@ -194,7 +194,7 @@ When a failure could plausibly be caused by exhausted subscription quota, run `/
 
 ```bash
 agy -p "<PROMPT>" \
-  --model gemini-3.7-flash-high \
+  --model gemini-3.8-flash-high \
   --print-timeout 30m
 ```
 
