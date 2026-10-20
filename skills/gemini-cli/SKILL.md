@@ -68,63 +68,6 @@ Handle it as a normal execution, model, permission, timeout, configuration, or s
 
 Temporary service or capacity failures must not disable Gemini unless `/usage` confirms exhausted quota.
 
-## Streaming
-
-Use streaming only when intermediate execution supervision is useful:
-
-```bash
-agy -p "<PROMPT>" \
-  --model <MODEL> \
-  --print-timeout 30m
-```
-
-`stream-json` emits newline-delimited JSON events.
-
-Relevant events include:
-
-```text
-init
-step_update
-result
-```
-
-`step_update` may expose:
-
-* response fragments
-* tool executions
-* tool results
-* token usage
-* subagent activity
-
-The final `result` event contains the terminal result.
-
-For ordinary Gemini invocations, prefer the default text output instead.
-
-## Agent selection
-
-List configured agents with:
-
-```bash
-agy agents
-```
-
-Select a specific configured agent with:
-
-```bash
---agent <AGENT_NAME>
-```
-
-Example:
-
-```bash
-agy -p "<PROMPT>" \
-  --agent <AGENT_NAME> \
-  --model <MODEL> \
-  --print-timeout 30m
-```
-
-Use `--agent` only when a particular configured Gemini agent is required.
-
 ## Conversations
 
 Continue the latest conversation with:
@@ -168,19 +111,17 @@ Headless execution cannot answer interactive permission prompts.
 
 The CLI applies its configured permission rules during execution.
 
-Enable terminal sandbox restrictions with:
+Automatically approve safe actions with:
 
 ```bash
---sandbox
+--mode auto
 ```
 
-Automatically approve permission requests with:
+Use `--dangerously-skip-permissions` only when the user explicitly asks for it. It auto-approves every tool permission request without prompting:
 
 ```bash
 --dangerously-skip-permissions
 ```
-
-Do not use `--dangerously-skip-permissions` unless unrestricted tool execution is explicitly intended.
 
 ## Execution failures
 
