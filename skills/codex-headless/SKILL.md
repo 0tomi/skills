@@ -1,6 +1,6 @@
 ---
 name: codex-headless
-description: Invocar subagentes de Codex. Usar si el usuario lo indica. Permite usar `--dangerously-bypass-approvals-and-sandbox` solo con permiso explícito del usuario.
+description: Invocar subagentes de Codex. Usar si el usuario lo indica. Modo preferencial `--approve-for-me` (auto: aprueba permisos automáticamente con revisión automática y sandbox workspace-write). Permite usar `--dangerously-bypass-approvals-and-sandbox` solo con permiso explícito del usuario.
 ---
 
 # Codex CLI (headless)
@@ -12,17 +12,34 @@ Para delegar una tarea sin abrir la interfaz interactiva, usar `codex exec` (ali
 - **Modelo:** GPT-6.1 Sol (`gpt-6.1-sol`)
 - **Effort:** `medium`
 
-## Ejecución
+## Modo preferencial: auto (`--approve-for-me`)
+
+Usar **siempre** `--approve-for-me` como modo de trabajo por defecto. Es el modo *auto*: las solicitudes de aprobación de permisos se resuelven mediante revisión automática, sin intervención humana, y la ejecución queda dentro del sandbox `workspace-write`. Así la delegación headless no se bloquea esperando confirmaciones y mantiene un límite de seguridad.
 
 ```bash
-codex exec -C /ruta/proyecto -m gpt-6.1-sol -c model_reasoning_effort=medium \
+codex exec -C /ruta/proyecto -m gpt-6.1-sol -c model_reasoning_effort=medium --approve-for-me \
+  "Corregí el error, ejecutá las pruebas relevantes y resumí los cambios."
+```
+
+Reglas:
+
+- No combinar `--approve-for-me` con `-s` ni con `--dangerously-bypass-approvals-and-sandbox`; el modo ya fija `workspace-write`.
+- Para tareas de solo lectura (análisis, revisión) también se puede usar `-s read-only`, pero `--approve-for-me` sigue siendo el modo por defecto.
+- Escalar a `--dangerously-bypass-approvals-and-sandbox` solo con permiso explícito del usuario.
+
+## Ejecución
+
+Consulta o análisis (solo lectura):
+
+```bash
+codex exec -C /ruta/proyecto -m gpt-6.1-sol -c model_reasoning_effort=medium -s read-only \
   "Analizá el módulo de autenticación y resumí los problemas encontrados."
 ```
 
-Para permitir modificaciones en el proyecto:
+Tarea con modificaciones (modo auto, preferido):
 
 ```bash
-codex exec -C /ruta/proyecto -s workspace-write \
+codex exec -C /ruta/proyecto -m gpt-6.1-sol -c model_reasoning_effort=medium --approve-for-me \
   "Corregí el error, ejecutá las pruebas relevantes y resumí los cambios."
 ```
 
@@ -33,6 +50,7 @@ Parámetros principales:
 | `PROMPT` | Instrucción a ejecutar. |
 | `-` | Leer el prompt desde `stdin`. |
 | `-C RUTA` | Directorio del proyecto. |
+| `--approve-for-me` | **Modo auto (preferido):** aprueba permisos automáticamente vía revisión automática, con sandbox `workspace-write`. |
 | `-s MODO` | Sandbox: `read-only`, `workspace-write` o `danger-full-access`. |
 | `-m MODELO` | Elegir modelo. |
 | `-c clave=valor` | Sobrescribir una opción de configuración. |
@@ -54,7 +72,7 @@ codex exec -C /ruta/proyecto -o /tmp/codex-resumen.txt \
   "Revisá los cambios y detallá los hallazgos."
 ```
 
-Usar `read-only` para consultas y `workspace-write` para tareas que requieran edición. Evitar `danger-full-access` y `--dangerously-bypass-approvals-and-sandbox` salvo autorización explícita del usuario; el último también omite las confirmaciones.
+Usar `--approve-for-me` por defecto para tareas que requieran edición (y `read-only` para consultas puras). Evitar `danger-full-access` y `--dangerously-bypass-approvals-and-sandbox` salvo autorización explícita del usuario; el último también omite las confirmaciones.
 
 ## Continuar una sesión
 
