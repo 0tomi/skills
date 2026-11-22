@@ -7,17 +7,19 @@ description: Invocar subagentes de Codex. Usar si el usuario lo indica. Modo pre
 
 Para delegar una tarea sin abrir la interfaz interactiva, usar `codex exec` (alias `codex e`). El proceso ejecuta la tarea, muestra el progreso en `stderr` y entrega normalmente la respuesta final en texto plano por `stdout`.
 
-## Modelo recomendado
+## Modelos
 
-- **Modelo:** GPT-6.1 Sol (`gpt-6.1-sol`)
-- **Effort:** `medium`
+Usar siempre la última versión disponible de cada familia (`<TERRA>` / `<SOL>` en los ejemplos). No inventar slugs.
+
+- **GPT Terra**, effort `high`: por defecto.
+- **GPT Sol**, effort `medium`: tareas críticas, pesadas o que requieran más inteligencia y toma de decisiones.
 
 ## Modo preferencial: auto (`--approve-for-me`)
 
 Usar **siempre** `--approve-for-me` como modo de trabajo por defecto. Es el modo *auto*: las solicitudes de aprobación de permisos se resuelven mediante revisión automática, sin intervención humana, y la ejecución queda dentro del sandbox `workspace-write`. Así la delegación headless no se bloquea esperando confirmaciones y mantiene un límite de seguridad.
 
 ```bash
-codex exec -C /ruta/proyecto -m gpt-6.1-sol -c model_reasoning_effort=medium --approve-for-me \
+codex exec -C /ruta/proyecto -m <TERRA> -c model_reasoning_effort=high --approve-for-me \
   "Corregí el error, ejecutá las pruebas relevantes y resumí los cambios."
 ```
 
@@ -32,14 +34,14 @@ Reglas:
 Consulta o análisis (solo lectura):
 
 ```bash
-codex exec -C /ruta/proyecto -m gpt-6.1-sol -c model_reasoning_effort=medium -s read-only \
+codex exec -C /ruta/proyecto -m <TERRA> -c model_reasoning_effort=high -s read-only \
   "Analizá el módulo de autenticación y resumí los problemas encontrados."
 ```
 
 Tarea con modificaciones (modo auto, preferido):
 
 ```bash
-codex exec -C /ruta/proyecto -m gpt-6.1-sol -c model_reasoning_effort=medium --approve-for-me \
+codex exec -C /ruta/proyecto -m <TERRA> -c model_reasoning_effort=high --approve-for-me \
   "Corregí el error, ejecutá las pruebas relevantes y resumí los cambios."
 ```
 

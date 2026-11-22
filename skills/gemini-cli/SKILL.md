@@ -25,23 +25,12 @@ Use the normal text output by default. Do not request JSON output for ordinary G
 
 ## Models
 
-Use one of these Gemini model slugs:
+Use the latest available version of each family (check with `agy models`):
 
-```text
-gemini-3.7-flash-high
-gemini-3.1-pro-high
-gemini-3.8-flash-high
-```
+* **Gemini Hydrogen**, effort `high`: default.
+* **Gemini Neon**: only if the user wants to delegate critical, heavy, or intelligence-demanding work.
 
-These model variants already select high reasoning effort. Do not add an `--effort` flag.
-
-Gemini 4 Argon is also available, with three reasoning effort levels: `low`, `medium`, and `high`. The user chooses the level. Use the slug `gemini-4-argon-<EFFORT>`, for example `gemini-4-argon-high`.
-
-Inspect currently available models with:
-
-```bash
-agy models
-```
+The effort is part of the slug (`gemini-<VERSION>-<FAMILY>-<EFFORT>`). Do not add an `--effort` flag.
 
 Do not invent model slugs.
 
@@ -138,7 +127,7 @@ When a failure could plausibly be caused by exhausted subscription quota, run `/
 
 ```bash
 agy -p "<PROMPT>" \
-  --model gemini-3.8-flash-high \
+  --model <LATEST_HYDROGEN_HIGH> \
   --print-timeout 30m
 ```
 
