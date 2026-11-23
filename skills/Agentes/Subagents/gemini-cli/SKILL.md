@@ -22,9 +22,7 @@ Usar la última versión de cada familia. Slug: `gemini-<VERSIÓN>-<familia>-<ef
 
 ## Permisos
 
-Usar siempre `--mode auto`: aprueba ediciones y comandos seguros sin pedir confirmación. Al iniciar, agy puede avisar `--mode auto is not available for this account`: ignorarlo, el modo auto queda activo igual. No usar `--mode accept-edits`: deniega los comandos de terminal.
-
-`--dangerously-skip-permissions` (aprueba todo sin preguntar) solo con permiso explícito del usuario.
+Usar siempre `--mode auto`: aprueba ediciones y comandos seguros sin pedir confirmación. Agy puede mostrar `--mode auto is not available for this account` al iniciar, aunque el modo auto se aplica igual. No usar `--mode accept-edits`: deniega los comandos de terminal.
 
 ## Duración
 

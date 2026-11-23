@@ -26,8 +26,6 @@ Los alias `sonnet` y `opus` apuntan siempre a la última versión: no hace falta
 
 Usar siempre `--permission-mode auto`: aprueba ediciones y comandos seguros sin pedir confirmación.
 
-`--dangerously-skip-permissions` solo con permiso explícito del usuario.
-
 ## Duración
 
 Una tarea puede tardar mucho: lanzarla en segundo plano o con un timeout de 1 h, nunca con el timeout por defecto de la herramienta.

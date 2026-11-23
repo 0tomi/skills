@@ -1,19 +1,14 @@
 ---
 name: codex-delegation
-description: instrucciones de delegacion para que codex maneje subagentes mas eficientemente
+description: Protocolo de delegación para que Codex elija qué modelo usar en cada subagente.
 ---
 
-Al realizar una tarea mandada por el usuario, seguir el siguiente protocolo de delegación:
+Al delegar una tarea del usuario, elegir el subagente así:
 
-Usar GPT Terra con effort high:
-- Para tareas comunes, implementaciones medianas o largas pero de poca complejidad.
-- Para revisiones o verificaciones
-- Para exploraciones
+| Subagente | Cuándo |
+|---|---|
+| GPT Terra, effort `high` | Por defecto: tareas comunes, implementaciones medianas o largas de poca complejidad, exploraciones. |
+| GPT Sol, effort `medium` | Tareas críticas o largas, y reviews de tareas críticas, complejas o muy largas. También cuando un Terra falló de forma estrepitosa: la tarea estaba subestimada. |
+| Gemini, vía la skill `gemini-cli` | Revisiones de fases medianas o largas de poca complejidad. Equivale a un Terra, pero solo se usa para revisiones. |
 
-Usar GPT Sol con effort medium:
-- Cuando la tarea es critica o larga.
-- Si la tarea ejecutada por un agente Terra fallo de forma estrepitosa, eso quiere decir que la tarea se sobrestimó, por lo cual toca desplegar un Sol. 
-- Para reviews de tareas criticas, complejas o muy largas.
-  
-Usar Gemini mediante la skill `gemini-cli` con dangerously-skip-permissions para las revisioens de fases implementadas medianas o largas de poca complejidad. Si gemini esta disponible, se usa este agente en vez de Terra. Terra queda exclusivo como fallback para revisiones dado el caso de que no funcione no haya uso.
-Gemini equivale a un agente de Terra, pero solo lo dejamos pare revisiones. Sol es mas que gemini, por lo tanto, como menciono antes, se deja para cosas criticas.
+Para revisiones de poca complejidad, Gemini va primero; Terra queda como fallback si Gemini falla o no tiene cuota.

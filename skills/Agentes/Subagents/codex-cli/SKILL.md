@@ -26,7 +26,6 @@ Usar la última versión de cada familia. Slug: `gpt-<VERSIÓN>-<familia>`; cons
 Usar siempre `--approve-for-me` (modo *auto*): una revisión automática resuelve las aprobaciones y la ejecución queda en el sandbox `workspace-write`, así la delegación no se bloquea esperando confirmación.
 
 - No combinarlo con `-s`: el modo ya fija el sandbox.
-- `--dangerously-bypass-approvals-and-sandbox` (`--yolo`) solo con permiso explícito del usuario.
 
 ## Otros parámetros
 
