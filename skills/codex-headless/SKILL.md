@@ -1,6 +1,6 @@
 ---
 name: codex-headless
-description: Invocar subagentes de Codex. Usar si el usuario lo indica. Modo preferencial `--approve-for-me` (auto: aprueba permisos automáticamente con revisión automática y sandbox workspace-write). Permite usar `--dangerously-bypass-approvals-and-sandbox` solo con permiso explícito del usuario.
+description: "Invocar subagentes de Codex. Usar si el usuario lo indica. Modo preferencial `--approve-for-me` (auto: aprueba permisos automáticamente con revisión automática y sandbox workspace-write). Permite usar `--dangerously-bypass-approvals-and-sandbox` solo con permiso explícito del usuario."
 ---
 
 # Codex CLI (headless)
