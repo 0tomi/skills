@@ -15,11 +15,10 @@ Sections, roughly:
   - A name for the approach.
   - A micro-mockup (small SVG or HTML/CSS frame).
   - The tradeoff in one line ("more onboarding steps, but no upfront choice").
-  - Tags for what's varied (density, tone, layout, etc.).
 - A "pick to expand" affordance — a button on each card that signals which to develop further. Optional: the user can also just say it in chat.
 - An assumptions strip if any defaults are baked in.
 
-The grid lets the user *see* the difference. Don't pad each card with paragraphs — a label and a tradeoff is the unit.
+The grid lets the user *see* the difference: a name, a mockup and a tradeoff are the unit. The mockups show what varies; no tags restating it.
 
 ---
 
@@ -63,7 +62,7 @@ Sections, roughly:
 
 - A live preview at the top (the thing being tuned, rendering from current control state).
 - A control panel — sliders, pickers, toggles — grouped by what they affect.
-- A "current state" readout showing the values picked, with a small copy button (JSON or CSS variables) — the user pastes those values when invoking `planificar`.
+- A "current state" readout of the values picked, with a copy button (see `interactivity.md`).
 
 The whole artifact is preview + controls + readout. Don't bury the preview behind a fold; the user is here to fiddle.
 

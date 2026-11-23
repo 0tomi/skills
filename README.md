@@ -28,23 +28,29 @@ npx skills add 0tomi/skills --skill planificar -a opencode
 npx openskills install 0tomi/skills
 ```
 
-## Skills principales incluidas
+## Skills
 
-| Skill | Descripción |
+Organizadas por carpeta; cada una tiene su README con el índice de skills.
+
+| Carpeta | Skills |
 |---|---|
-| [`planificar`](./skills/planificar) | Convierte un requerimiento en un plan de implementación ejecutable. Soporta modo secuencial y orquestación entre agentes. Conversacional: pregunta antes de comprometerse cuando hay ambigüedad real. |
-| [`orquestacion-especializada-planes`](./skills/orquestacion-especializada-planes) | Explica al agente como orquestar de forma correcta subagentes a partir de un plan detallado. |
-| [`gemini-cli`](./skills/gemini-cli) | Permite utilizar como subagentes los modelos de Antigravity en cualquier plataforma (Opencode, Codex, etc), siempre y cuando tengas agy instalado. |
-| [`reduce-slop`](./skills/reduce-slop) | Skill para un revisor, provee patrones convencionales para reducir el slop del codigo generado por los agentes. |
-| [`sveltekit-tauri`](./skills/sveltekit-tauri) | Da normativas para utilizar Svelte con Tauri, armado según la documentación oficial. |
+| [Agentes/Delegación](./skills/Agentes/Delegación) | `orquestar-planes`, `codex-delegation` |
+| [Agentes/Subagents](./skills/Agentes/Subagents) | `claude-cli`, `codex-cli`, `gemini-cli` |
+| [Código - Implementaciones/Planificación](./skills/Codigo%20-%20Implementaciones/Planificación) | `prototype-html`, `planificar` |
+| [Código - Implementaciones/Reviews](./skills/Codigo%20-%20Implementaciones/Reviews) | `reduce-slop` |
+| [Código - Implementaciones/Frameworks](./skills/Codigo%20-%20Implementaciones/Frameworks) | `sveltekit-tauri` |
+| [Estudiar](./skills/Estudiar) | `apunte-interactivo` |
+| [Varios](./skills/Varios) | `commit` |
 
 ## Estructura
 
 ```
 skills/
-├── <skill>/
-│   ├── SKILL.md          # Núcleo: cuándo usar, cómo usar
-│   └── references/       # Material complementario, cargado bajo demanda
+├── <Categoría>/
+│   ├── README.md             # Índice de la categoría
+│   └── <skill>/
+│       ├── SKILL.md          # Núcleo: cuándo usar, cómo usar
+│       └── references/       # Material complementario, cargado bajo demanda
 ```
 
 Cada skill sigue el [Agent Skills spec](https://github.com/anthropics/skills): SKILL.md con frontmatter (`name`, `description`) y cuerpo en Markdown. Las referencias se leen on-demand para mantener el contexto liviano.

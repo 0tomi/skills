@@ -48,4 +48,4 @@ Not worth surfacing:
 
 ## Exit criterion
 
-You're done exploring when you can prototype the proposed change without guessing what the current shape is, and each change section can name the actual surface it touches. If something critical is still unknown after a real attempt to find out, treat it as a *Block* (see *Handling gaps* in SKILL.md) rather than guessing.
+You're done exploring when you can prototype the proposed change without guessing what the current shape is, and each change section can name the actual surface it touches. If something critical is still unknown after a real attempt to find out, treat it as a *Block* (see *Ask, assume, or block* in SKILL.md) rather than guessing.

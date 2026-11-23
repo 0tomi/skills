@@ -74,6 +74,38 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 Gotchas: `AnimatePresence` exige `key` distinta por elemento; `layout` en motion.div anima reordenamientos gratis (útil para visualizar sorting); para resaltar "qué cambió en esta iteración", animar `backgroundColor` del elemento activo. Reemplaza todo lo que antes hacías con GSAP/anime.js.
 
+## SVG animado (diagramas que se arman ante el ojo)
+
+SVG en JSX + framer-motion. Para rehacer diagramas del original (flujos, arquitecturas, ciclos, máquinas de estado, circuitos) y llevarlos un paso más allá.
+
+```tsx
+const [paso, setPaso] = useState(0);
+
+<svg viewBox="0 0 400 200" className="w-full h-auto">
+  {/* trazo que se dibuja */}
+  <motion.path d="M40 100 C 140 20, 260 180, 360 100" fill="none"
+    className="stroke-indigo-500" strokeWidth={3} strokeLinecap="round"
+    initial={{ pathLength: 0 }} animate={{ pathLength: paso >= 1 ? 1 : 0 }}
+    transition={{ duration: 1.2, ease: 'easeInOut' }} />
+  {/* nodos que aparecen en orden */}
+  {nodos.map((n, i) => (
+    <motion.g key={n.id} initial={{ opacity: 0, scale: 0.6 }}
+      animate={{ opacity: paso >= n.paso ? 1 : 0.15, scale: paso >= n.paso ? 1 : 0.6 }}
+      style={{ transformOrigin: `${n.x}px ${n.y}px` }}>
+      <circle cx={n.x} cy={n.y} r={18} className="fill-white stroke-slate-700" />
+      <text x={n.x} y={n.y + 4} textAnchor="middle" className="text-xs fill-slate-800">{n.label}</text>
+    </motion.g>
+  ))}
+</svg>
+```
+
+- **Dibujar trazos:** `pathLength` 0→1 en `motion.path`/`motion.line`.
+- **Partícula que recorre un camino** (dato fluyendo, token, paquete): `motion.circle` con `style={{ offsetPath: \`path('${d}')\` }}` y `animate={{ offsetDistance: ['0%', '100%'] }}`, `repeat: Infinity`.
+- **Estado activo:** animar `fill`/`stroke` del nodo o arista que cambió en este paso; el resto en baja opacidad.
+- **Controles:** un `paso` en estado con botones play/pausa/anterior/siguiente (lucide) — el estudiante marca el ritmo. Autoplay solo para loops cortos e ilustrativos.
+- **Responsivo:** siempre `viewBox` + `w-full h-auto`, nunca width/height fijos en px.
+- **Bonito:** trazos redondeados, paleta acotada (2–3 colores con significado), transiciones `easeInOut` de 0.4–1.2 s, espacio en blanco generoso.
+
 ## d3 (lo que recharts no cubre: grafos, árboles, fuerzas)
 
 Patrón preferido — **d3 calcula, React renderiza**: usar d3 solo para escalas, layouts y generadores de path, y dibujar el SVG con JSX. Cero peleas por el DOM.
@@ -103,7 +135,7 @@ Clases de utilidad en `className` como forma principal. Valores dinámicos calcu
 
 ## Equivalencias de lo que NO está disponible
 
-- **Mermaid (diagramas de flujo/árboles)** → SVG propio en JSX, con d3.hierarchy si hay layout de árbol. Más control visual y se puede animar nodo por nodo con framer-motion.
+- **Mermaid (diagramas de flujo/árboles)** → SVG animado propio (ver arriba), con d3.hierarchy si hay layout de árbol.
 - **Chart.js** → recharts (o d3 si es algo exótico).
 - **p5.js (simulaciones/física)** → `<canvas>` + `useRef` + `requestAnimationFrame` en un useEffect (cancelar en cleanup), o SVG animado si son pocos elementos. Estado de sliders se lee desde un ref para no congelar el closure.
 - **GSAP / anime.js** → framer-motion.
